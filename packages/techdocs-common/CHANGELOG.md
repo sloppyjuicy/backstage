@@ -1,5 +1,14 @@
 # @backstage/techdocs-common
 
+## 0.6.9
+
+### Patch Changes
+
+- 6e5aed1c9: Fix validation of mkdocs.yml docs_dir
+- 250984333: Add link to https://backstage.io/docs/features/techdocs/configuration in the log warning message about updating techdocs.generate key.
+- Updated dependencies
+  - @backstage/backend-common@0.8.7
+
 ## 0.6.8
 
 ### Patch Changes
