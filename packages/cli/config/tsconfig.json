@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "allowJs": true,
     "declaration": true,
     "declarationMap": false,
@@ -11,7 +12,7 @@
     "incremental": true,
     "isolatedModules": true,
     "jsx": "react",
-    "lib": ["DOM", "DOM.Iterable", "ScriptHost", "ES2020"],
+    "lib": ["DOM", "DOM.Iterable", "ScriptHost", "ES2022"],
     "module": "ESNext",
     "moduleResolution": "node",
     "noEmit": false,
@@ -32,7 +33,8 @@
     "strictNullChecks": true,
     "strictPropertyInitialization": true,
     "stripInternal": true,
-    "target": "ES2019",
-    "types": ["node", "jest", "webpack-env"]
+    "target": "ES2022",
+    "types": ["node", "jest", "webpack-env"],
+    "useDefineForClassFields": true
   }
 }

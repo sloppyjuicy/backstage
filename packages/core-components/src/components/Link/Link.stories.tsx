@@ -13,19 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { ComponentType } from 'react';
+import React, { ComponentType, PropsWithChildren } from 'react';
 import { Link } from './Link';
 import {
-  MemoryRouter,
   Route,
   useLocation,
   NavLink as RouterNavLink,
+  Routes,
 } from 'react-router-dom';
 import { createRouteRef, useRouteRef } from '@backstage/core-plugin-api';
-// We don't want to export RoutingProvider from core-app-api, but it's way easier to
-// use here. This hack only works in storybook stories.
-// eslint-disable-next-line monorepo/no-internal-import
-import { RoutingProvider } from '@backstage/core-app-api/src/routing/RoutingProvider';
+import { wrapInTestApp } from '@backstage/test-utils';
 
 const routeRef = createRouteRef({
   id: 'storybook.test-route',
@@ -40,23 +37,16 @@ export default {
   title: 'Navigation/Link',
   component: Link,
   decorators: [
-    (Story: ComponentType<{}>) => (
-      <MemoryRouter>
-        <RoutingProvider
-          routeBindings={new Map()}
-          routeObjects={[]}
-          routeParents={new Map()}
-          routePaths={new Map([[routeRef, '/hello']])}
-        >
+    (Story: ComponentType<PropsWithChildren<{}>>) =>
+      wrapInTestApp(
+        <div>
           <div>
-            <div>
-              <Location />
-            </div>
-            <Story />
+            <Location />
           </div>
-        </RoutingProvider>
-      </MemoryRouter>
-    ),
+          <Story />
+        </div>,
+        { mountedRoutes: { '/hello': routeRef } },
+      ),
   ],
 };
 
@@ -65,11 +55,11 @@ export const Default = () => {
 
   return (
     <>
-      <Link to={link()}>This link</Link>&nbsp;will utilise the react-router
+      <Link to={link()}>This link</Link>&nbsp;will utilize the react-router
       MemoryRouter's navigation
-      <Route path={link()}>
-        <h1>Hi there!</h1>
-      </Route>
+      <Routes>
+        <Route path={link()} element={<h1>Hi there!</h1>} />
+      </Routes>
     </>
   );
 };
@@ -90,9 +80,9 @@ export const PassProps = () => {
       </Link>
       &nbsp;has props for both material-ui's component as well as for
       react-router-dom's
-      <Route path={link()}>
-        <h1>Hi there!</h1>
-      </Route>
+      <Routes>
+        <Route path={link()} element={<h1>Hi there!</h1>} />
+      </Routes>
     </>
   );
 };

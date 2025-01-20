@@ -15,3 +15,8 @@
  */
 
 export { Breadcrumbs } from './Breadcrumbs';
+export type {
+  BreadcrumbsClickableTextClassKey,
+  BreadcrumbsStyledBoxClassKey,
+  BreadcrumbsCurrentPageClassKey,
+} from './Breadcrumbs';

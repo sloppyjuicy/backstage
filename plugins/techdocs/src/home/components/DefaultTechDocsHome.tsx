@@ -19,57 +19,75 @@ import {
   Content,
   ContentHeader,
   SupportButton,
-  TableColumn,
-  TableProps,
 } from '@backstage/core-components';
 import {
-  EntityListContainer,
-  FilterContainer,
-  FilteredEntityLayout,
-} from '@backstage/plugin-catalog';
-import {
+  CatalogFilterLayout,
   EntityListProvider,
   EntityOwnerPicker,
   EntityTagPicker,
-  UserListFilterKind,
   UserListPicker,
 } from '@backstage/plugin-catalog-react';
-import { EntityListDocsTable } from './EntityListDocsTable';
 import { TechDocsPageWrapper } from './TechDocsPageWrapper';
 import { TechDocsPicker } from './TechDocsPicker';
-import { DocsTableRow } from './types';
+import { EntityListDocsTable } from './Tables';
+import { TechDocsIndexPageProps } from './TechDocsIndexPage';
 
-export const DefaultTechDocsHome = ({
-  initialFilter = 'all',
-  columns,
-  actions,
-}: {
-  initialFilter?: UserListFilterKind;
-  columns?: TableColumn<DocsTableRow>[];
-  actions?: TableProps<DocsTableRow>['actions'];
-}) => {
+/**
+ * Props for {@link DefaultTechDocsHome}
+ *
+ * @public
+ * @deprecated Please use `TechDocsIndexPageProps` instead.
+ */
+export type DefaultTechDocsHomeProps = TechDocsIndexPageProps;
+
+/**
+ * Component which renders a default documentation landing page.
+ *
+ * @public
+ */
+export const DefaultTechDocsHome = (props: TechDocsIndexPageProps) => {
+  const {
+    initialFilter = 'owned',
+    columns,
+    actions,
+    ownerPickerMode,
+    pagination,
+    options,
+    PageWrapper,
+    CustomHeader,
+  } = props;
+  const Wrapper: React.FC<{
+    children: React.ReactNode;
+  }> = PageWrapper ? PageWrapper : TechDocsPageWrapper;
+  const Header: React.FC =
+    CustomHeader ||
+    (() => (
+      <ContentHeader title="">
+        <SupportButton>Discover documentation in your ecosystem.</SupportButton>
+      </ContentHeader>
+    ));
   return (
-    <TechDocsPageWrapper>
+    <Wrapper>
       <Content>
-        <ContentHeader title="">
-          <SupportButton>
-            Discover documentation in your ecosystem.
-          </SupportButton>
-        </ContentHeader>
-        <EntityListProvider>
-          <FilteredEntityLayout>
-            <FilterContainer>
+        <Header />
+        <EntityListProvider pagination={pagination}>
+          <CatalogFilterLayout>
+            <CatalogFilterLayout.Filters>
               <TechDocsPicker />
               <UserListPicker initialFilter={initialFilter} />
-              <EntityOwnerPicker />
+              <EntityOwnerPicker mode={ownerPickerMode} />
               <EntityTagPicker />
-            </FilterContainer>
-            <EntityListContainer>
-              <EntityListDocsTable actions={actions} columns={columns} />
-            </EntityListContainer>
-          </FilteredEntityLayout>
+            </CatalogFilterLayout.Filters>
+            <CatalogFilterLayout.Content>
+              <EntityListDocsTable
+                actions={actions}
+                columns={columns}
+                options={options}
+              />
+            </CatalogFilterLayout.Content>
+          </CatalogFilterLayout>
         </EntityListProvider>
       </Content>
-    </TechDocsPageWrapper>
+    </Wrapper>
   );
 };

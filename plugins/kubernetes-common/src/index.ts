@@ -14,4 +14,18 @@
  * limitations under the License.
  */
 
+/**
+ * Common functionalities for Kubernetes, to be shared between the `kubernetes` and `kubernetes-backend` plugins
+ *
+ * @packageDocumentation
+ */
+
 export * from './types';
+export * from './catalog-entity-constants';
+export * from './certificate-authority-constants';
+export {
+  kubernetesProxyPermission,
+  kubernetesPermissions,
+} from './permissions';
+export * from './error-detection';
+export * from './util';

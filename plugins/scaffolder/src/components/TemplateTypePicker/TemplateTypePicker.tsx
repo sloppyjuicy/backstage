@@ -17,29 +17,33 @@
 import React from 'react';
 import capitalize from 'lodash/capitalize';
 import { Progress } from '@backstage/core-components';
-import {
-  Box,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-  makeStyles,
-  Theme,
-  Typography,
-} from '@material-ui/core';
+import Box from '@material-ui/core/Box';
+import Checkbox from '@material-ui/core/Checkbox';
+import FormControlLabel from '@material-ui/core/FormControlLabel';
+import TextField from '@material-ui/core/TextField';
+import Typography from '@material-ui/core/Typography';
+import CheckBoxIcon from '@material-ui/icons/CheckBox';
+import CheckBoxOutlineBlankIcon from '@material-ui/icons/CheckBoxOutlineBlank';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import Autocomplete from '@material-ui/lab/Autocomplete';
 import { useEntityTypeFilter } from '@backstage/plugin-catalog-react';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { scaffolderTranslationRef } from '../../translation';
 
-const useStyles = makeStyles<Theme>(theme => ({
-  checkbox: {
-    padding: theme.spacing(1, 1, 1, 2),
-  },
-}));
+const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
+const checkedIcon = <CheckBoxIcon fontSize="small" />;
 
+/**
+ * The component to select the `type` of `Template` that you will see in the table.
+ *
+ * @public
+ */
 export const TemplateTypePicker = () => {
-  const classes = useStyles();
   const alertApi = useApi(alertApiRef);
   const { error, loading, availableTypes, selectedTypes, setSelectedTypes } =
     useEntityTypeFilter();
+  const { t } = useTranslationRef(scaffolderTranslationRef);
 
   if (loading) return <Progress />;
 
@@ -53,32 +57,37 @@ export const TemplateTypePicker = () => {
     return null;
   }
 
-  function toggleSelection(type: string) {
-    setSelectedTypes(
-      selectedTypes.includes(type)
-        ? selectedTypes.filter(t => t !== type)
-        : [...selectedTypes, type],
-    );
-  }
-
   return (
     <Box pb={1} pt={1}>
-      <Typography variant="button">Categories</Typography>
-      <FormGroup>
-        {availableTypes.map(type => (
+      <Typography
+        variant="button"
+        component="label"
+        htmlFor="categories-picker"
+      >
+        {t('templateTypePicker.title')}
+      </Typography>
+      <Autocomplete<string, true>
+        id="categories-picker"
+        multiple
+        options={availableTypes}
+        value={selectedTypes}
+        onChange={(_: object, value: string[]) => setSelectedTypes(value)}
+        renderOption={(option, { selected }) => (
           <FormControlLabel
             control={
               <Checkbox
-                checked={selectedTypes.includes(type)}
-                onChange={() => toggleSelection(type)}
-                className={classes.checkbox}
+                icon={icon}
+                checkedIcon={checkedIcon}
+                checked={selected}
               />
             }
-            label={capitalize(type)}
-            key={type}
+            label={capitalize(option)}
           />
-        ))}
-      </FormGroup>
+        )}
+        size="small"
+        popupIcon={<ExpandMoreIcon data-testid="categories-picker-expand" />}
+        renderInput={params => <TextField {...params} variant="outlined" />}
+      />
     </Box>
   );
 };

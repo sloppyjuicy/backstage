@@ -19,23 +19,41 @@ import React from 'react';
 import { PageWithHeader } from '@backstage/core-components';
 import { useApi, configApiRef } from '@backstage/core-plugin-api';
 
-type Props = {
+/**
+ * Props for {@link TechDocsPageWrapper}
+ *
+ * @public
+ */
+export type TechDocsPageWrapperProps = {
   children?: React.ReactNode;
+  CustomPageWrapper?: React.FC<{ children?: React.ReactNode }>;
 };
 
-export const TechDocsPageWrapper = ({ children }: Props) => {
+/**
+ * Component wrapping a TechDocs page with Page and Header components
+ *
+ * @public
+ */
+export const TechDocsPageWrapper = (props: TechDocsPageWrapperProps) => {
+  const { children, CustomPageWrapper } = props;
   const configApi = useApi(configApiRef);
   const generatedSubtitle = `Documentation available in ${
     configApi.getOptionalString('organization.name') ?? 'Backstage'
   }`;
 
   return (
-    <PageWithHeader
-      title="Documentation"
-      subtitle={generatedSubtitle}
-      themeId="documentation"
-    >
-      {children}
-    </PageWithHeader>
+    <>
+      {CustomPageWrapper ? (
+        <CustomPageWrapper>{children}</CustomPageWrapper>
+      ) : (
+        <PageWithHeader
+          title="Documentation"
+          subtitle={generatedSubtitle}
+          themeId="documentation"
+        >
+          {children}
+        </PageWithHeader>
+      )}
+    </>
   );
 };

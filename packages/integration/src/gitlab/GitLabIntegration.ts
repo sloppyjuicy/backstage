@@ -21,6 +21,11 @@ import {
   readGitLabIntegrationConfigs,
 } from './config';
 
+/**
+ * A GitLab based integration.
+ *
+ * @public
+ */
 export class GitLabIntegration implements ScmIntegration {
   static factory: ScmIntegrationsFactory<GitLabIntegration> = ({ config }) => {
     const configs = readGitLabIntegrationConfigs(
@@ -55,11 +60,18 @@ export class GitLabIntegration implements ScmIntegration {
   }
 
   resolveEditUrl(url: string): string {
-    return replaceUrlType(url, 'edit');
+    return replaceGitLabUrlType(url, 'edit');
   }
 }
 
-export function replaceUrlType(
+/**
+ * Takes a GitLab URL and replaces the type part (blob, tree etc).
+ *
+ * @param url - The original URL
+ * @param type - The desired type, e.g. 'blob', 'tree', 'edit'
+ * @public
+ */
+export function replaceGitLabUrlType(
   url: string,
   type: 'blob' | 'tree' | 'edit',
 ): string {

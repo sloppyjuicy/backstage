@@ -14,65 +14,59 @@
  * limitations under the License.
  */
 
-import { CatalogApi, catalogApiRef } from '@backstage/plugin-catalog-react';
-import { MockStorageApi, renderInTestApp } from '@backstage/test-utils';
+import { ApiProvider } from '@backstage/core-app-api';
+import { configApiRef, storageApiRef } from '@backstage/core-plugin-api';
+import {
+  MockStarredEntitiesApi,
+  catalogApiRef,
+  starredEntitiesApiRef,
+} from '@backstage/plugin-catalog-react';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
+import {
+  TestApiRegistry,
+  mockApis,
+  renderInTestApp,
+} from '@backstage/test-utils';
 import { screen } from '@testing-library/react';
 import React from 'react';
+import { rootDocsRouteRef } from '../../routes';
 import { DefaultTechDocsHome } from './DefaultTechDocsHome';
 
-import {
-  ApiProvider,
-  ApiRegistry,
-  ConfigReader,
-} from '@backstage/core-app-api';
-import {
-  ConfigApi,
-  configApiRef,
-  storageApiRef,
-} from '@backstage/core-plugin-api';
-
-jest.mock('@backstage/plugin-catalog-react', () => {
-  const actual = jest.requireActual('@backstage/plugin-catalog-react');
-  return {
-    ...actual,
-    useOwnUser: () => 'test-user',
-  };
+const mockCatalogApi = catalogApiMock({
+  entities: [
+    {
+      apiVersion: 'version',
+      kind: 'User',
+      metadata: {
+        name: 'owned',
+        namespace: 'default',
+      },
+    },
+  ],
 });
 
-const mockCatalogApi = {
-  getEntityByName: () => Promise.resolve(),
-  getEntities: async () => ({
-    items: [
-      {
-        apiVersion: 'version',
-        kind: 'User',
-        metadata: {
-          name: 'owned',
-          namespace: 'default',
-        },
-      },
-    ],
-  }),
-} as Partial<CatalogApi>;
-
 describe('TechDocs Home', () => {
-  const configApi: ConfigApi = new ConfigReader({
-    organization: {
-      name: 'My Company',
-    },
+  const configApi = mockApis.config({
+    data: { organization: { name: 'My Company' } },
   });
 
-  const apiRegistry = ApiRegistry.from([
+  const apiRegistry = TestApiRegistry.from(
     [catalogApiRef, mockCatalogApi],
     [configApiRef, configApi],
-    [storageApiRef, MockStorageApi.create()],
-  ]);
+    [storageApiRef, mockApis.storage()],
+    [starredEntitiesApiRef, new MockStarredEntitiesApi()],
+  );
 
   it('should render a TechDocs home page', async () => {
     await renderInTestApp(
       <ApiProvider apis={apiRegistry}>
         <DefaultTechDocsHome />
       </ApiProvider>,
+      {
+        mountedRoutes: {
+          '/docs/:namespace/:kind/:name/*': rootDocsRouteRef,
+        },
+      },
     );
 
     // Header

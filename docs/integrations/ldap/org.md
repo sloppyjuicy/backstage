@@ -12,28 +12,42 @@ groups - directly from an LDAP compatible service. The result is a hierarchy of
 [`Group`](../../features/software-catalog/descriptor-format.md#kind-group) kind
 entities that mirror your org setup.
 
+## Supported vendors
+
+Backstage in general supports OpenLDAP compatible vendors, as well as Active Directory and FreeIPA. If you are using a vendor that does not seem to be supported, please [file an issue](https://github.com/backstage/backstage/issues/new?assignees=&labels=enhancement&template=feature_template.md).
+
 ## Installation
 
-1. The processor is not installed by default, therefore you have to add a
-   dependency to `@backstage/plugin-catalog-backend-module-ldap` to your backend
-   package.
+The provider is not installed by default, therefore you have to add a dependency
+to `@backstage/plugin-catalog-backend-module-ldap` to your backend package.
 
-```bash
-# From your Backstage root directory
-cd packages/backend
-yarn add @backstage/plugin-catalog-backend-module-ldap
+```bash title="From your Backstage root directory"
+yarn --cwd packages/backend add @backstage/plugin-catalog-backend-module-ldap
 ```
 
-2. The `LdapOrgReaderProcessor` is not registered by default, so you have to
-   register it in the catalog plugin:
+Next add the basic configuration to `app-config.yaml`
 
-```typescript
-// packages/backend/src/plugins/catalog.ts
-builder.addProcessor(
-  LdapOrgReaderProcessor.fromConfig(config, {
-    logger,
-  }),
-);
+```yaml title="app-config.yaml"
+catalog:
+  providers:
+    ldapOrg:
+      default:
+        target: ldaps://ds.example.net
+        bind:
+          dn: uid=ldap-reader-user,ou=people,ou=example,dc=example,dc=net
+          secret: ${LDAP_SECRET}
+        schedule:
+          frequency: PT1H
+          timeout: PT15M
+```
+
+Finally, updated your backend by adding the following line:
+
+```ts title="packages/backend/src/index.ts"
+backend.add(import('@backstage/plugin-catalog-backend'));
+/* highlight-add-start */
+backend.add(import('@backstage/plugin-catalog-backend-module-ldap'));
+/* highlight-add-end */
 ```
 
 ## Configuration
@@ -41,28 +55,27 @@ builder.addProcessor(
 The following configuration is a small example of how a setup could look for
 importing groups and users from a corporate LDAP server.
 
+Users and Groups can be configured for multiple `dn` entries as an array.
+
 ```yaml
 catalog:
-  locations:
-    - type: ldap-org
-      target: ldaps://ds.example.net
-  processors:
+  providers:
     ldapOrg:
-      providers:
-        - target: ldaps://ds.example.net
-          bind:
-            dn: uid=ldap-reader-user,ou=people,ou=example,dc=example,dc=net
-            secret: ${LDAP_SECRET}
-          users:
-            dn: ou=people,ou=example,dc=example,dc=net
+      default:
+        target: ldaps://ds.example.net
+        bind:
+          dn: uid=ldap-reader-user,ou=people,ou=example,dc=example,dc=net
+          secret: ${LDAP_SECRET}
+        users:
+          - dn: ou=people,ou=example,dc=example,dc=net
             options:
               filter: (uid=*)
             map:
               description: l
             set:
               metadata.customField: 'hello'
-          groups:
-            dn: ou=access,ou=groups,ou=example,dc=example,dc=net
+        groups:
+          - dn: ou=access,ou=groups,ou=example,dc=example,dc=net
             options:
               filter: (&(objectClass=some-group-class)(!(groupType=email)))
             map:
@@ -71,25 +84,33 @@ catalog:
               metadata.customField: 'hello'
 ```
 
-Locations point out the specific org(s) you want to import. The `type` of these
-locations must be `ldap-org`, and the `target` must point to the exact URL
-(starting with `ldap://` or `ldaps://`) of the targeted LDAP server. You can
-have several such location entries if you want, but typically you will have just
-one.
+These config blocks have a lot of options in them, so we will describe each "root" key within the block separately.
 
-The processor itself is configured in the other block, under
-`catalog.processors.ldapOrg`. There may be many providers, each targeting a
-specific `target` which is supposed to be on the same form as the location
-`target`.
-
-These config blocks have a lot of options in them, so we will describe each
-"root" key within the block separately.
+> NOTE:
+>
+> If you want to import users and groups from different LDAP servers, you can define multiple providers with different names.
+> If they should come from the same server, you can define multiple users and groups blocks within the same provider using an array of users / groups.
+> Entries coming from the same block will be able to detect group memberships based on the `memberOf` attribute.
+>
+> If you want only to import users or groups, you can omit the groups or users block.
 
 ### target
 
 This is the URL of the targeted server, typically on the form
 `ldaps://ds.example.net` for SSL enabled servers or `ldap://ds.example.net`
 without SSL.
+
+#### target.tls.keys
+
+`keys` in TLS options specifies location of a file, that contains private keys
+to establish connection with your LDAP server, in PEM format. See an example
+for Google Secure LDAP Service below.
+
+#### target.tls.certs
+
+`certs` in TLS options specifies location of a file, that contains certificate
+chains to establish connection with your LDAP server, in PEM format. See an
+example for Google Secure LDAP Service below.
 
 ### bind
 
@@ -163,7 +184,7 @@ below, with their default values, but they are all optional.
 
 If you leave out an optional mapping, it will still be copied using that default
 value. For example, even if you do not put in the field `displayName` in your
-config, the processor will still copy the attribute `cn` into the entity field
+config, the provider will still copy the attribute `cn` into the entity field
 `spec.profile.displayName`.
 
 ```yaml
@@ -245,7 +266,7 @@ shown below, with their default values, but they are all optional.
 
 If you leave out an optional mapping, it will still be copied using that default
 value. For example, even if you do not put in the field `displayName` in your
-config, the processor will still copy the attribute `cn` into the entity field
+config, the provider will still copy the attribute `cn` into the entity field
 `spec.profile.displayName`. If the target field is optional, such as the display
 name, the importer will accept missing attributes and just leave the target
 field unset. If the target field is mandatory, such as the name of the entity,
@@ -283,34 +304,64 @@ map:
   members: member
 ```
 
-## Customize the Processor
+## Optional Vendor Configuration
 
-In case you want to customize the ingested entities, the
-`LdapOrgReaderProcessor` allows to pass transformers for users and groups.
+In case the LDAP vendor isn't automatically detected by the module, an optional `vendor` configuration section is available which allows overriding the location for `dn` and `uuid` settings, and a case sensitivity setting.
 
-1. Create a transformer:
+#### vendor.dnAttributeName
 
-```ts
-export async function myGroupTransformer(
-  vendor: LdapVendor,
-  config: GroupConfig,
-  group: SearchEntry,
-): Promise<GroupEntity | undefined> {
-  // Transformations may change namespace, change entity naming pattern, fill
-  // profile with more or other details...
+Allows explicitly defining the name of the attribute that stores each entry's DN.
 
-  // Create the group entity on your own, or wrap the default transformer
-  return await defaultGroupTransformer(vendor, config, group);
-}
+#### vendor.uuidAttributeName
+
+Allows explicitly defining the name of the attribute that stores each entry's UUID.
+
+#### vendor.dnCaseSensitive
+
+Provides the ability to ignore case sensitivity issues with user/group mappings. If set to true, the ingestion will link user/members to groups whether their `dn`, `member`, or `memberOf` values have the right case or not.
+
+```yaml
+vendor:
+  # Attribute name override for the distinguished name (DN) of an entry.
+  dnAttributeName: dn
+  # Attribute name override for the unique identifier (UUID) of an entry.
+  uuidAttributeName: uuid
+  # Attribute to force values provided from dn and members/memberOf values all to lowercase.
+  # This is to resolve potential user/group mapping issues if case differences on dn strings.
+  dnCaseSensitive: true
 ```
 
-2. Configure the processor with the transformer:
+## Customize the Provider
 
-```ts
-builder.addProcessor(
-  LdapOrgReaderProcessor.fromConfig(config, {
-    logger,
-    groupTransformer: myGroupTransformer,
+In case you want to customize the ingested entities, the provider allows to pass
+transformers for users and groups.
+
+Transformers can be configured by extending `ldapOrgEntityProviderTransformsExtensionPoint`. Here is an example:
+
+```ts title="packages/backend/src/index.ts"
+import { createBackendModule } from '@backstage/backend-plugin-api';
+import { ldapOrgEntityProviderTransformsExtensionPoint } from '@backstage/plugin-catalog-backend-module-ldap';
+import { myUserTransformer, myGroupTransformer } from './transformers';
+
+backend.add(
+  createBackendModule({
+    pluginId: 'catalog',
+    moduleId: 'ldap-extensions',
+    register(env) {
+      env.registerInit({
+        deps: {
+          /* highlight-add-start */
+          ldapTransformers: ldapOrgEntityProviderTransformsExtensionPoint,
+          /* highlight-add-end */
+        },
+        async init({ ldapTransformers }) {
+          /* highlight-add-start */
+          ldapTransformers.setUserTransformer(myUserTransformer);
+          ldapTransformers.setGroupTransformer(myGroupTransformer);
+          /* highlight-add-end */
+        },
+      });
+    },
   }),
 );
 ```

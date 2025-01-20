@@ -15,16 +15,20 @@
  */
 
 import { Schema } from 'jsonschema';
-import { createApiRef, Observable } from '@backstage/core-plugin-api';
+import { createApiRef } from '@backstage/core-plugin-api';
+import { Observable } from '@backstage/types';
 
+/** @public */
 export interface ConfigSchemaResult {
   schema?: Schema;
 }
 
+/** @public */
 export interface ConfigSchemaApi {
   schema$(): Observable<ConfigSchemaResult>;
 }
 
+/** @public */
 export const configSchemaApiRef = createApiRef<ConfigSchemaApi>({
   id: 'plugin.config-schema',
 });

@@ -22,9 +22,11 @@ import {
 } from 'child_process';
 import { ExitCodeError } from './errors';
 import { promisify } from 'util';
-import { LogFunc } from './logging';
+import { assertError, ForwardedError } from '@backstage/errors';
 
-const execFile = promisify(execFileCb);
+export const execFile = promisify(execFileCb);
+
+type LogFunc = (data: Buffer) => void;
 
 type SpawnOptionsPartialEnv = Omit<SpawnOptions, 'env'> & {
   env?: Partial<NodeJS.ProcessEnv>;
@@ -75,10 +77,14 @@ export async function runPlain(cmd: string, ...args: string[]) {
     const { stdout } = await execFile(cmd, args, { shell: true });
     return stdout.trim();
   } catch (error) {
-    if (error.stderr) {
-      process.stderr.write(error.stderr);
+    assertError(error);
+    if ('stderr' in error) {
+      process.stderr.write(error.stderr as Buffer);
     }
-    throw new ExitCodeError(error.code, [cmd, ...args].join(' '));
+    if (typeof error.code === 'number') {
+      throw new ExitCodeError(error.code, [cmd, ...args].join(' '));
+    }
+    throw new ForwardedError('Unknown execution error', error);
   }
 }
 

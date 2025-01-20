@@ -13,29 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-import React from 'react';
+import List from '@material-ui/core/List';
+import ListItem from '@material-ui/core/ListItem';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
-  withStyles,
   createStyles,
-  WithStyles,
   Theme,
-} from '@material-ui/core';
+  WithStyles,
+  withStyles,
+} from '@material-ui/core/styles';
+import Table from '@material-ui/core/Table';
+import TableBody from '@material-ui/core/TableBody';
+import TableCell from '@material-ui/core/TableCell';
+import TableRow from '@material-ui/core/TableRow';
+import React from 'react';
+
+export type MetadataTableTitleCellClassKey = 'root';
 
 const tableTitleCellStyles = (theme: Theme) =>
   createStyles({
     root: {
-      fontWeight: 'bolder',
+      fontWeight: theme.typography.fontWeightBold,
       whiteSpace: 'nowrap',
       paddingRight: theme.spacing(4),
       border: '0',
       verticalAlign: 'top',
     },
   });
+
+export type MetadataTableCellClassKey = 'root';
 
 const tableContentCellStyles = {
   root: {
@@ -44,14 +49,16 @@ const tableContentCellStyles = {
   },
 };
 
+export type MetadataTableListClassKey = 'root';
+
 const listStyles = (theme: Theme) =>
   createStyles({
     root: {
-      listStyle: 'none',
       margin: theme.spacing(0, 0, -1, 0),
-      padding: '0',
     },
   });
+
+export type MetadataTableListItemClassKey = 'root' | 'random';
 
 const listItemStyles = (theme: Theme) =>
   createStyles({
@@ -61,8 +68,12 @@ const listItemStyles = (theme: Theme) =>
     random: {},
   });
 
-const TitleCell = withStyles(tableTitleCellStyles)(TableCell);
-const ContentCell = withStyles(tableContentCellStyles)(TableCell);
+const TitleCell = withStyles(tableTitleCellStyles, {
+  name: 'BackstageMetadataTableTitleCell',
+})(TableCell);
+const ContentCell = withStyles(tableContentCellStyles, {
+  name: 'BackstageMetadataTableCell',
+})(TableCell);
 
 export const MetadataTable = ({
   dense,
@@ -96,14 +107,16 @@ interface StyleProps extends WithStyles {
   children?: React.ReactNode;
 }
 
-export const MetadataList = withStyles(listStyles)(
-  ({ classes, children }: StyleProps) => (
-    <ul className={classes.root}>{children}</ul>
-  ),
-);
+export const MetadataList = withStyles(listStyles, {
+  name: 'BackstageMetadataTableList',
+})(({ classes, children }: StyleProps) => (
+  <List disablePadding className={classes.root}>
+    {children}
+  </List>
+));
 
-export const MetadataListItem = withStyles(listItemStyles)(
-  ({ classes, children }: StyleProps) => (
-    <li className={classes.root}>{children}</li>
-  ),
-);
+export const MetadataListItem = withStyles(listItemStyles, {
+  name: 'BackstageMetadataTableListItem',
+})(({ classes, children }: StyleProps) => (
+  <ListItem className={classes.root}>{children}</ListItem>
+));

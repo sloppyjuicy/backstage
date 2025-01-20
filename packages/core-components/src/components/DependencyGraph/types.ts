@@ -14,75 +14,161 @@
  * limitations under the License.
  */
 
-import dagre from 'dagre';
+/**
+ * Types used to customize and provide data to {@link DependencyGraph}
+ *
+ * @packageDocumentation
+ */
 
-type CustomType = { [customKey: string]: any };
+import React from 'react';
 
-/* Edges */
-export type DependencyEdge<T = CustomType> = T & {
-  from: string;
-  to: string;
-  label?: string;
-};
+/**
+ * Types for the {@link DependencyGraph} component.
+ *
+ * @public
+ */
+export namespace DependencyGraphTypes {
+  /**
+   * Edge of {@link DependencyGraph}
+   *
+   * @public
+   */
+  export type DependencyEdge<T = {}> = T & {
+    /**
+     * ID of {@link DependencyNode} from where the Edge start
+     */
+    from: string;
+    /**
+     * ID of {@link DependencyNode} to where the Edge goes to
+     */
+    to: string;
+    /**
+     * Label assigned and rendered with the Edge
+     */
+    label?: string;
+  };
 
-export type GraphEdge<T = CustomType> = DependencyEdge<T> &
-  dagre.GraphEdge &
-  EdgeProperties;
+  /**
+   * Properties of {@link DependencyGraphTypes.RenderLabelFunction} for {@link DependencyGraphTypes.DependencyEdge}
+   *
+   * @public
+   */
+  export type RenderLabelProps<T = unknown> = { edge: DependencyEdge<T> };
 
-export type RenderLabelProps<T = CustomType> = { edge: DependencyEdge<T> };
+  /**
+   * Custom React component for edge labels
+   *
+   * @public
+   */
+  export type RenderLabelFunction<T = {}> = (
+    props: RenderLabelProps<T>,
+  ) => React.ReactNode;
 
-export type RenderLabelFunction = (
-  props: RenderLabelProps<any>,
-) => React.ReactNode;
+  /**
+   * Node of {@link DependencyGraph}
+   *
+   * @public
+   */
+  export type DependencyNode<T = {}> = T & {
+    id: string;
+  };
 
-/* Nodes */
-export type DependencyNode<T = CustomType> = T & {
-  id: string;
-};
+  /**
+   * Properties of {@link DependencyGraphTypes.RenderNodeFunction} for {@link DependencyGraphTypes.DependencyNode}
+   *
+   * @public
+   */
+  export type RenderNodeProps<T = unknown> = { node: DependencyNode<T> };
 
-export type GraphNode<T = CustomType> = dagre.Node<DependencyNode<T>>;
+  /**
+   * Custom React component for graph {@link DependencyGraphTypes.DependencyNode}
+   *
+   * @public
+   */
+  export type RenderNodeFunction<T = {}> = (
+    props: RenderNodeProps<T>,
+  ) => React.ReactNode;
 
-export type RenderNodeProps<T = CustomType> = { node: DependencyNode<T> };
+  /**
+   * Graph direction
+   *
+   * @public
+   */
+  export enum Direction {
+    /**
+     * Top to Bottom
+     */
+    TOP_BOTTOM = 'TB',
+    /**
+     * Bottom to Top
+     */
+    BOTTOM_TOP = 'BT',
+    /**
+     * Left to Right
+     */
+    LEFT_RIGHT = 'LR',
+    /**
+     * Right to Left
+     */
+    RIGHT_LEFT = 'RL',
+  }
 
-export type RenderNodeFunction = (
-  props: RenderNodeProps<any>,
-) => React.ReactNode;
+  /**
+   * Node alignment
+   *
+   * @public
+   */
+  export enum Alignment {
+    /**
+     * Up Left
+     */
+    UP_LEFT = 'UL',
+    /**
+     * Up Right
+     */
+    UP_RIGHT = 'UR',
+    /**
+     * Down Left
+     */
+    DOWN_LEFT = 'DL',
+    /**
+     * Down Right
+     */
+    DOWN_RIGHT = 'DR',
+  }
 
-/* Based on: https://github.com/dagrejs/dagre/wiki#configuring-the-layout  */
+  /**
+   * Algorithm used to rand nodes in graph
+   *
+   * @public
+   */
+  export enum Ranker {
+    /**
+     * {@link https://en.wikipedia.org/wiki/Network_simplex_algorithm | Network Simplex} algorithm
+     */
+    NETWORK_SIMPLEX = 'network-simplex',
+    /**
+     * Tight Tree algorithm
+     */
+    TIGHT_TREE = 'tight-tree',
+    /**
+     * Longest path algorithm
+     *
+     * @remarks
+     *
+     * Simplest and fastest
+     */
+    LONGEST_PATH = 'longest-path',
+  }
 
-export type EdgeProperties = {
-  label?: string;
-  width?: number;
-  height?: number;
-  labeloffset?: number;
-  labelpos?: LabelPosition;
-  minlen?: number;
-  weight?: number;
-  [customKey: string]: any;
-};
-
-export enum Direction {
-  TOP_BOTTOM = 'TB',
-  BOTTOM_TOP = 'BT',
-  LEFT_RIGHT = 'LR',
-  RIGHT_LEFT = 'RL',
-}
-
-export enum Alignment {
-  UP_LEFT = 'UL',
-  UP_RIGHT = 'UR',
-  DOWN_LEFT = 'DL',
-  DOWN_RIGHT = 'DR',
-}
-
-export enum Ranker {
-  NETWORK_SIMPLEX = 'network-simplex',
-  TIGHT_TREE = 'tight-tree',
-  LONGEST_PATH = 'longest-path',
-}
-
-export enum LabelPosition {
-  LEFT = 'l',
-  RIGHT = 'r',
-  CENTER = 'c',
+  /**
+   * Position of label in relation to the edge
+   *
+   * @public
+   */
+  export enum LabelPosition {
+    LEFT = 'l',
+    RIGHT = 'r',
+    CENTER = 'c',
+  }
 }

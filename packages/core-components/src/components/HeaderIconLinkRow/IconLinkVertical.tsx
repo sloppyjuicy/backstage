@@ -15,9 +15,11 @@
  */
 import React from 'react';
 import classnames from 'classnames';
-import { makeStyles, Link } from '@material-ui/core';
+import { makeStyles } from '@material-ui/core/styles';
 import LinkIcon from '@material-ui/icons/Link';
-import { Link as RouterLink } from '../Link';
+import { Link } from '../Link';
+import Box from '@material-ui/core/Box';
+import Typography from '@material-ui/core/Typography';
 
 export type IconLinkVerticalProps = {
   color?: 'primary' | 'secondary';
@@ -29,31 +31,42 @@ export type IconLinkVerticalProps = {
   title?: string;
 };
 
-const useIconStyles = makeStyles(theme => ({
-  link: {
-    display: 'grid',
-    justifyItems: 'center',
-    gridGap: 4,
-    textAlign: 'center',
-  },
-  disabled: {
-    color: 'gray',
-    cursor: 'default',
-  },
-  primary: {
-    color: theme.palette.primary.main,
-  },
-  secondary: {
-    color: theme.palette.secondary.main,
-  },
-  label: {
-    fontSize: '0.7rem',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    letterSpacing: 1.2,
-  },
-}));
+/** @public */
+export type IconLinkVerticalClassKey =
+  | 'link'
+  | 'disabled'
+  | 'primary'
+  | 'secondary'
+  | 'label';
 
+const useIconStyles = makeStyles(
+  theme => ({
+    link: {
+      display: 'grid',
+      justifyItems: 'center',
+      gridGap: 4,
+      textAlign: 'center',
+    },
+    disabled: {
+      color: theme.palette.text.secondary,
+      cursor: 'default',
+    },
+    primary: {
+      color: theme.palette.primary.main,
+    },
+    secondary: {
+      color: theme.palette.secondary.main,
+    },
+    label: {
+      textTransform: 'uppercase',
+      fontWeight: theme.typography.fontWeightBold,
+      letterSpacing: 1.2,
+    },
+  }),
+  { name: 'BackstageIconLinkVertical' },
+);
+
+/** @public */
 export function IconLinkVertical({
   color = 'primary',
   disabled = false,
@@ -67,14 +80,16 @@ export function IconLinkVertical({
 
   if (disabled) {
     return (
-      <Link
-        title={title}
-        className={classnames(classes.link, classes.disabled)}
-        underline="none"
-      >
+      <Box title={title} className={classnames(classes.link, classes.disabled)}>
         {icon}
-        <span className={classes.label}>{label}</span>
-      </Link>
+        <Typography
+          variant="caption"
+          component="span"
+          className={classes.label}
+        >
+          {label}
+        </Typography>
+      </Box>
     );
   }
 
@@ -83,11 +98,12 @@ export function IconLinkVertical({
       title={title}
       className={classnames(classes.link, classes[color])}
       to={href}
-      component={RouterLink}
       onClick={onClick}
     >
       {icon}
-      <span className={classes.label}>{label}</span>
+      <Typography variant="caption" component="span" className={classes.label}>
+        {label}
+      </Typography>
     </Link>
   );
 }

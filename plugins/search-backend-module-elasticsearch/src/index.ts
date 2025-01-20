@@ -14,4 +14,43 @@
  * limitations under the License.
  */
 
-export { ElasticSearchSearchEngine } from './engines';
+/**
+ * A module for the search backend that implements search using ElasticSearch
+ *
+ * @packageDocumentation
+ */
+
+export { default } from './module';
+export * from './module';
+export {
+  decodeElasticSearchPageCursor,
+  ElasticSearchSearchEngine,
+  isOpenSearchCompatible,
+} from './engines';
+export type {
+  BaseElasticSearchClientOptions,
+  ElasticSearchAgentOptions,
+  ElasticSearchAliasAction,
+  ElasticSearchClientWrapper,
+  ElasticSearchConcreteQuery,
+  ElasticSearchClientOptions,
+  ElasticSearchElasticSearchClientOptions,
+  ElasticSearchHighlightConfig,
+  ElasticSearchHighlightOptions,
+  ElasticSearchIndexAction,
+  ElasticSearchQueryTranslator,
+  ElasticSearchQueryTranslatorOptions,
+  ElasticSearchConnectionConstructor,
+  ElasticSearchTransportConstructor,
+  ElasticSearchNodeOptions,
+  ElasticSearchOptions,
+  ElasticSearchAuth,
+  ElasticSearchSearchEngineIndexer,
+  ElasticSearchSearchEngineIndexerOptions,
+  ElasticSearchCustomIndexTemplate,
+  ElasticSearchCustomIndexTemplateBody,
+  OpenSearchAuth,
+  OpenSearchConnectionConstructor,
+  OpenSearchElasticSearchClientOptions,
+  OpenSearchNodeOptions,
+} from './engines';

@@ -14,38 +14,46 @@
  * limitations under the License.
  */
 
-import { useApp } from '@backstage/core-plugin-api';
-import { BackstageTheme } from '@backstage/theme';
-import {
-  Box,
-  Button,
-  DialogActions,
-  IconButton,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  makeStyles,
-  Popover,
-  Typography,
-  useMediaQuery,
-} from '@material-ui/core';
+import { configApiRef, useApi, useApp } from '@backstage/core-plugin-api';
+import Box from '@material-ui/core/Box';
+import Button from '@material-ui/core/Button';
+import DialogActions from '@material-ui/core/DialogActions';
+import IconButton from '@material-ui/core/IconButton';
+import ListItemIcon from '@material-ui/core/ListItemIcon';
+import ListItemText from '@material-ui/core/ListItemText';
+import MenuItem from '@material-ui/core/MenuItem';
+import MenuList from '@material-ui/core/MenuList';
+import Popover from '@material-ui/core/Popover';
+import { Theme, makeStyles } from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
+import useMediaQuery from '@material-ui/core/useMediaQuery';
 import React, { MouseEventHandler, useState } from 'react';
 import { SupportItem, SupportItemLink, useSupportConfig } from '../../hooks';
 import { HelpIcon } from '../../icons';
 import { Link } from '../Link';
+import { coreComponentsTranslationRef } from '../../translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
 type SupportButtonProps = {
   title?: string;
+  items?: SupportItem[];
   children?: React.ReactNode;
 };
 
-const useStyles = makeStyles({
-  popoverList: {
-    minWidth: 260,
-    maxWidth: 400,
+export type SupportButtonClassKey = 'popoverList';
+
+const useStyles = makeStyles(
+  {
+    popoverList: {
+      minWidth: 260,
+      maxWidth: 400,
+    },
+    menuItem: {
+      whiteSpace: 'normal',
+    },
   },
-});
+  { name: 'BackstageSupportButton' },
+);
 
 const SupportIcon = ({ icon }: { icon: string | undefined }) => {
   const app = useApp();
@@ -54,20 +62,18 @@ const SupportIcon = ({ icon }: { icon: string | undefined }) => {
 };
 
 const SupportLink = ({ link }: { link: SupportItemLink }) => (
-  <Link to={link.url} target="_blank" rel="noreferrer noopener">
-    {link.title ?? link.url}
-  </Link>
+  <Link to={link.url}>{link.title ?? link.url}</Link>
 );
 
 const SupportListItem = ({ item }: { item: SupportItem }) => {
   return (
-    <ListItem>
+    <MenuItem button={false}>
       <ListItemIcon>
         <SupportIcon icon={item.icon} />
       </ListItemIcon>
       <ListItemText
         primary={item.title}
-        secondary={item.links?.reduce<React.ReactNodeArray>(
+        secondary={item.links?.reduce<React.ReactNode[]>(
           (prev, link, idx) => [
             ...prev,
             idx > 0 && <br key={idx} />,
@@ -76,17 +82,20 @@ const SupportListItem = ({ item }: { item: SupportItem }) => {
           [],
         )}
       />
-    </ListItem>
+    </MenuItem>
   );
 };
 
-export const SupportButton = ({ title, children }: SupportButtonProps) => {
-  const { items } = useSupportConfig();
+export function SupportButton(props: SupportButtonProps) {
+  const { t } = useTranslationRef(coreComponentsTranslationRef);
+  const { title, items, children } = props;
+  const { items: configItems } = useSupportConfig();
 
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<Element | null>(null);
   const classes = useStyles();
-  const isSmallScreen = useMediaQuery<BackstageTheme>(theme =>
+  const supportConfig = useApi(configApiRef).getOptionalConfig('app.support');
+  const isSmallScreen = useMediaQuery<Theme>(theme =>
     theme.breakpoints.down('sm'),
   );
 
@@ -99,6 +108,10 @@ export const SupportButton = ({ title, children }: SupportButtonProps) => {
     setPopoverOpen(false);
   };
 
+  if (!supportConfig) {
+    return null;
+  }
+
   return (
     <>
       <Box display="flex" ml={1}>
@@ -108,17 +121,19 @@ export const SupportButton = ({ title, children }: SupportButtonProps) => {
             size="small"
             onClick={onClickHandler}
             data-testid="support-button"
+            aria-label="Support"
           >
             <HelpIcon />
           </IconButton>
         ) : (
           <Button
             data-testid="support-button"
+            aria-label="Support"
             color="primary"
             onClick={onClickHandler}
             startIcon={<HelpIcon />}
           >
-            Support
+            {t('supportButton.title')}
           </Button>
         )}
       </Box>
@@ -136,28 +151,43 @@ export const SupportButton = ({ title, children }: SupportButtonProps) => {
         }}
         onClose={popoverCloseHandler}
       >
-        <List className={classes.popoverList}>
+        <MenuList
+          className={classes.popoverList}
+          autoFocusItem={Boolean(anchorEl)}
+        >
           {title && (
-            <ListItem alignItems="flex-start">
+            <MenuItem
+              button={false}
+              alignItems="flex-start"
+              className={classes.menuItem}
+            >
               <Typography variant="subtitle1">{title}</Typography>
-            </ListItem>
+            </MenuItem>
           )}
           {React.Children.map(children, (child, i) => (
-            <ListItem alignItems="flex-start" key={`child-${i}`}>
+            <MenuItem
+              button={false}
+              alignItems="flex-start"
+              key={`child-${i}`}
+              className={classes.menuItem}
+            >
               {child}
-            </ListItem>
+            </MenuItem>
           ))}
-          {items &&
-            items.map((item, i) => (
-              <SupportListItem item={item} key={`item-${i}`} />
-            ))}
-        </List>
+          {(items ?? configItems).map((item, i) => (
+            <SupportListItem item={item} key={`item-${i}`} />
+          ))}
+        </MenuList>
         <DialogActions>
-          <Button color="primary" onClick={popoverCloseHandler}>
-            Close
+          <Button
+            color="primary"
+            onClick={popoverCloseHandler}
+            aria-label="Close"
+          >
+            {t('supportButton.close')}
           </Button>
         </DialogActions>
       </Popover>
     </>
   );
-};
+}

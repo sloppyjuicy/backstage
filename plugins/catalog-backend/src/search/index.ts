@@ -14,4 +14,7 @@
  * limitations under the License.
  */
 
-export * from './DefaultCatalogCollator';
+/**
+ * todo(backstage/techdocs-core): stop exporting this in a future release.
+ */
+export { DefaultCatalogCollator } from './DefaultCatalogCollator';

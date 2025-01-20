@@ -14,17 +14,16 @@
  * limitations under the License.
  */
 
-import {
-  Box,
-  Checkbox,
-  FormControlLabel,
-  FormHelperText,
-  StepLabel,
-  TextField,
-  Typography,
-} from '@material-ui/core';
+import Box from '@material-ui/core/Box';
+import Checkbox from '@material-ui/core/Checkbox';
+import FormControlLabel from '@material-ui/core/FormControlLabel';
+import FormHelperText from '@material-ui/core/FormHelperText';
+import StepLabel from '@material-ui/core/StepLabel';
+import TextField from '@material-ui/core/TextField';
+import Typography from '@material-ui/core/Typography';
 import React from 'react';
 import { BackButton } from '../Buttons';
+import { asInputRef } from '../helpers';
 import { StepFinishImportLocation } from '../StepFinishImportLocation';
 import { StepInitAnalyzeUrl } from '../StepInitAnalyzeUrl';
 import {
@@ -33,64 +32,36 @@ import {
 } from '../StepPrepareCreatePullRequest';
 import { StepPrepareSelectLocations } from '../StepPrepareSelectLocations';
 import { StepReviewLocation } from '../StepReviewLocation';
+import { StepperApis } from '../types';
 import { ImportFlows, ImportState } from '../useImportState';
-import { ConfigApi } from '@backstage/core-plugin-api';
-
-export type StepperProviderOpts = {
-  pullRequest?: {
-    disable?: boolean;
-    preparePullRequest?: (apis: StepperApis) => {
-      title?: string;
-      body?: string;
-    };
-  };
-};
-
-type StepperApis = {
-  configApi: ConfigApi;
-};
 
 export type StepConfiguration = {
   stepLabel: React.ReactElement;
   content: React.ReactElement;
 };
 
-export type StepperProvider = {
+/**
+ * Defines the details of the stepper.
+ *
+ * @public
+ */
+export interface StepperProvider {
   analyze: (
     s: Extract<ImportState, { activeState: 'analyze' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: { apis: StepperApis },
   ) => StepConfiguration;
   prepare: (
     s: Extract<ImportState, { activeState: 'prepare' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: { apis: StepperApis },
   ) => StepConfiguration;
   review: (
     s: Extract<ImportState, { activeState: 'review' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: { apis: StepperApis },
   ) => StepConfiguration;
   finish: (
     s: Extract<ImportState, { activeState: 'finish' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: { apis: StepperApis },
   ) => StepConfiguration;
-};
-
-function defaultPreparePullRequest(
-  apis: StepperApis,
-  { title, body }: { title?: string; body?: string } = {},
-) {
-  const appTitle = apis.configApi.getOptionalString('app.title') ?? 'Backstage';
-  const appBaseUrl = apis.configApi.getString('app.baseUrl');
-
-  return {
-    title: title ?? 'Add catalog-info.yaml config file',
-    body:
-      body ??
-      `This pull request adds a **Backstage entity metadata file** \
-to this repository so that the component can be added to the \
-[${appTitle} software catalog](${appBaseUrl}).\n\nAfter this pull request is merged, \
-the component will become available.\n\nFor more information, read an \
-[overview of the Backstage software catalog](https://backstage.io/docs/features/software-catalog/software-catalog-overview).`,
-  };
 }
 
 /**
@@ -99,8 +70,9 @@ the component will become available.\n\nFor more information, read an \
  * Override this function to customize the import flow. Each flow should at
  * least override the prepare operation.
  *
- * @param flow the name of the active flow
- * @param defaults the default steps
+ * @param flow - the name of the active flow
+ * @param defaults - the default steps
+ * @public
  */
 export function defaultGenerateStepper(
   flow: ImportFlows,
@@ -168,13 +140,6 @@ export function defaultGenerateStepper(
             return defaults.prepare(state, opts);
           }
 
-          const preparePullRequest =
-            opts?.opts?.pullRequest?.preparePullRequest;
-          const { title, body } = defaultPreparePullRequest(
-            opts.apis,
-            preparePullRequest ? preparePullRequest(opts.apis) : {},
-          );
-
           return {
             stepLabel: <StepLabel>Create Pull Request</StepLabel>,
             content: (
@@ -182,12 +147,10 @@ export function defaultGenerateStepper(
                 analyzeResult={state.analyzeResult}
                 onPrepare={state.onPrepare}
                 onGoBack={state.onGoBack}
-                defaultTitle={title}
-                defaultBody={body}
                 renderFormFields={({
                   values,
-                  control,
-                  errors,
+                  setValue,
+                  formState,
                   groupsLoading,
                   groups,
                   register,
@@ -198,26 +161,32 @@ export function defaultGenerateStepper(
                     </Box>
 
                     <TextField
-                      name="title"
+                      {...asInputRef(
+                        register('title', {
+                          required: true,
+                        }),
+                      )}
                       label="Pull Request Title"
                       placeholder="Add Backstage catalog entity descriptor files"
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.title)}
+                      error={Boolean(formState.errors.title)}
                       required
                     />
 
                     <TextField
-                      name="body"
+                      {...asInputRef(
+                        register('body', {
+                          required: true,
+                        }),
+                      )}
                       label="Pull Request Body"
                       placeholder="A describing text with Markdown support"
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.body)}
+                      error={Boolean(formState.errors.body)}
                       multiline
                       required
                     />
@@ -227,22 +196,22 @@ export function defaultGenerateStepper(
                     </Box>
 
                     <TextField
-                      name="componentName"
+                      {...asInputRef(
+                        register('componentName', { required: true }),
+                      )}
                       label="Name of the created component"
                       placeholder="my-component"
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.componentName)}
+                      error={Boolean(formState.errors.componentName)}
                       required
                     />
 
                     {!values.useCodeowners && (
                       <AutocompleteTextField
                         name="owner"
-                        control={control}
-                        errors={errors}
+                        errors={formState.errors}
                         options={groups || []}
                         loading={groupsLoading}
                         loadingText="Loading groups…"
@@ -260,11 +229,10 @@ export function defaultGenerateStepper(
                     <FormControlLabel
                       control={
                         <Checkbox
-                          name="useCodeowners"
-                          inputRef={register}
+                          {...asInputRef(register('useCodeowners'))}
                           onChange={(_, value) => {
                             if (value) {
-                              control.setValue('owner', '');
+                              setValue('owner', '');
                             }
                           }}
                         />
@@ -293,14 +261,14 @@ export function defaultGenerateStepper(
 }
 
 export const defaultStepper: StepperProvider = {
-  analyze: (state, { opts }) => ({
+  analyze: (state, { apis }) => ({
     stepLabel: <StepLabel>Select URL</StepLabel>,
     content: (
       <StepInitAnalyzeUrl
         key="analyze"
         analysisUrl={state.analysisUrl}
         onAnalysis={state.onAnalysis}
-        disablePullRequest={opts?.pullRequest?.disable}
+        disablePullRequest={!apis.catalogImportApi.preparePullRequest}
       />
     ),
   }),

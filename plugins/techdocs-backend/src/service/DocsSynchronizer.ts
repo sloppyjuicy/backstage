@@ -14,18 +14,29 @@
  * limitations under the License.
  */
 
-import { Entity } from '@backstage/catalog-model';
+import {
+  DEFAULT_NAMESPACE,
+  Entity,
+  stringifyEntityRef,
+} from '@backstage/catalog-model';
 import { Config } from '@backstage/config';
-import { NotFoundError } from '@backstage/errors';
+import { assertError, NotFoundError } from '@backstage/errors';
 import { ScmIntegrationRegistry } from '@backstage/integration';
 import {
   GeneratorBuilder,
   PreparerBuilder,
   PublisherBase,
-} from '@backstage/techdocs-common';
+} from '@backstage/plugin-techdocs-node';
+import pLimit, { Limit } from 'p-limit';
 import { PassThrough } from 'stream';
 import * as winston from 'winston';
-import { DocsBuilder, shouldCheckForUpdate } from '../DocsBuilder';
+import { TechDocsCache } from '../cache';
+import {
+  BuildMetadataStorage,
+  DocsBuilder,
+  shouldCheckForUpdate,
+} from '../DocsBuilder';
+import { DiscoveryService } from '@backstage/backend-plugin-api';
 
 export type DocsSynchronizerSyncOpts = {
   log: (message: string) => void;
@@ -36,24 +47,36 @@ export type DocsSynchronizerSyncOpts = {
 export class DocsSynchronizer {
   private readonly publisher: PublisherBase;
   private readonly logger: winston.Logger;
+  private readonly buildLogTransport?: winston.transport;
   private readonly config: Config;
   private readonly scmIntegrations: ScmIntegrationRegistry;
+  private readonly cache: TechDocsCache | undefined;
+  private readonly buildLimiter: Limit;
 
   constructor({
     publisher,
     logger,
+    buildLogTransport,
     config,
     scmIntegrations,
+    cache,
   }: {
     publisher: PublisherBase;
     logger: winston.Logger;
+    buildLogTransport?: winston.transport;
     config: Config;
     scmIntegrations: ScmIntegrationRegistry;
+    cache: TechDocsCache | undefined;
   }) {
     this.config = config;
     this.logger = logger;
+    this.buildLogTransport = buildLogTransport;
     this.publisher = publisher;
     this.scmIntegrations = scmIntegrations;
+    this.cache = cache;
+
+    // Single host/process: limit concurrent builds up to 10 at a time.
+    this.buildLimiter = pLimit(10);
   }
 
   async doSync({
@@ -85,6 +108,9 @@ export class DocsSynchronizer {
     });
 
     taskLogger.add(new winston.transports.Stream({ stream: logStream }));
+    if (this.buildLogTransport) {
+      taskLogger.add(this.buildLogTransport);
+    }
 
     // check if the last update check was too recent
     if (!shouldCheckForUpdate(entity.metadata.uid!)) {
@@ -104,16 +130,26 @@ export class DocsSynchronizer {
         config: this.config,
         scmIntegrations: this.scmIntegrations,
         logStream,
+        cache: this.cache,
       });
 
-      const updated = await docsBuilder.build();
+      const interval = setInterval(() => {
+        taskLogger.info(
+          'The docs building process is taking a little bit longer to process this entity. Please bear with us.',
+        );
+      }, 10000);
+      const updated = await this.buildLimiter(() => docsBuilder.build());
+      clearInterval(interval);
 
       if (!updated) {
         finish({ updated: false });
         return;
       }
     } catch (e) {
-      const msg = `Failed to build the docs page: ${e.message}`;
+      assertError(e);
+      const msg = `Failed to build the docs page for entity ${stringifyEntityRef(
+        entity,
+      )}: ${e.message}`;
       taskLogger.error(msg);
       this.logger.error(msg, e);
       error(e);
@@ -136,12 +172,84 @@ export class DocsSynchronizer {
       );
       error(
         new NotFoundError(
-          'Sorry! It took too long for the generated docs to show up in storage. Check back later.',
+          'Sorry! It took too long for the generated docs to show up in storage. Are you sure the docs project is generating an `index.html` file? Otherwise, check back later.',
         ),
       );
       return;
     }
 
     finish({ updated: true });
+  }
+
+  async doCacheSync({
+    responseHandler: { finish },
+    discovery,
+    token,
+    entity,
+  }: {
+    responseHandler: DocsSynchronizerSyncOpts;
+    discovery: DiscoveryService;
+    token: string | undefined;
+    entity: Entity;
+  }) {
+    // Check if the last update check was too recent.
+    if (!shouldCheckForUpdate(entity.metadata.uid!) || !this.cache) {
+      finish({ updated: false });
+      return;
+    }
+
+    // Fetch techdocs_metadata.json from the publisher and from cache.
+    const baseUrl = await discovery.getBaseUrl('techdocs');
+    const namespace = entity.metadata?.namespace || DEFAULT_NAMESPACE;
+    const kind = entity.kind;
+    const name = entity.metadata.name;
+    const legacyPathCasing =
+      this.config.getOptionalBoolean(
+        'techdocs.legacyUseCaseSensitiveTripletPaths',
+      ) || false;
+    const tripletPath = `${namespace}/${kind}/${name}`;
+    const entityTripletPath = `${
+      legacyPathCasing ? tripletPath : tripletPath.toLocaleLowerCase('en-US')
+    }`;
+    try {
+      const [sourceMetadata, cachedMetadata] = await Promise.all([
+        this.publisher.fetchTechDocsMetadata({ namespace, kind, name }),
+        fetch(
+          `${baseUrl}/static/docs/${entityTripletPath}/techdocs_metadata.json`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
+        ).then(
+          f =>
+            f.json().catch(() => undefined) as ReturnType<
+              PublisherBase['fetchTechDocsMetadata']
+            >,
+        ),
+      ]);
+
+      // If build timestamps differ, merge their files[] lists and invalidate all objects.
+      if (sourceMetadata.build_timestamp !== cachedMetadata.build_timestamp) {
+        const files = [
+          ...new Set([
+            ...(sourceMetadata.files || []),
+            ...(cachedMetadata.files || []),
+          ]),
+        ].map(f => `${entityTripletPath}/${f}`);
+        await this.cache.invalidateMultiple(files);
+        finish({ updated: true });
+      } else {
+        finish({ updated: false });
+      }
+    } catch (e) {
+      assertError(e);
+      // In case of error, log and allow the user to go about their business.
+      this.logger.error(
+        `Error syncing cache for ${entityTripletPath}: ${e.message}`,
+      );
+      finish({ updated: false });
+    } finally {
+      // Update the last check time for the entity
+      new BuildMetadataStorage(entity.metadata.uid!).setLastUpdated();
+    }
   }
 }

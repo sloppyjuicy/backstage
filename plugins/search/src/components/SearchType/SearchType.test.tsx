@@ -14,32 +14,39 @@
  * limitations under the License.
  */
 
-import { useApi } from '@backstage/core-plugin-api';
+import { configApiRef } from '@backstage/core-plugin-api';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { SearchContextProvider } from '../SearchContext';
+import {
+  SearchContextProvider,
+  searchApiRef,
+} from '@backstage/plugin-search-react';
 import { SearchType } from './SearchType';
-
-jest.mock('@backstage/core-plugin-api', () => ({
-  ...jest.requireActual('@backstage/core-plugin-api'),
-  useApi: jest.fn().mockReturnValue({}),
-}));
+import { mockApis, TestApiProvider } from '@backstage/test-utils';
 
 describe('SearchType', () => {
   const initialState = {
     term: '',
     filters: {},
     types: [],
-    pageCursor: '',
   };
 
   const name = 'field';
   const values = ['value1', 'value2'];
   const typeValues = ['preselected'];
 
-  const query = jest.fn().mockResolvedValue({});
-  (useApi as jest.Mock).mockReturnValue({ query: query });
+  const configApiMock = mockApis.config({
+    data: {
+      search: {
+        query: {
+          pagelimit: 10,
+        },
+      },
+    },
+  });
+
+  const searchApiMock = { query: jest.fn().mockResolvedValue({ results: [] }) };
 
   afterAll(() => {
     jest.resetAllMocks();
@@ -48,16 +55,23 @@ describe('SearchType', () => {
   describe('Type Filter', () => {
     it('Renders field name and values when provided as props', async () => {
       render(
-        <SearchContextProvider initialState={initialState}>
-          <SearchType name={name} values={values} />
-        </SearchContextProvider>,
+        <TestApiProvider
+          apis={[
+            [configApiRef, configApiMock],
+            [searchApiRef, searchApiMock],
+          ]}
+        >
+          <SearchContextProvider initialState={initialState}>
+            <SearchType name={name} values={values} />
+          </SearchContextProvider>
+        </TestApiProvider>,
       );
 
       await waitFor(() => {
         expect(screen.getByText(name)).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('button'));
+      await userEvent.click(screen.getByRole('button'));
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
@@ -73,21 +87,28 @@ describe('SearchType', () => {
 
     it('Renders correctly based on type filter state', async () => {
       render(
-        <SearchContextProvider
-          initialState={{
-            ...initialState,
-            types: [values[0]],
-          }}
+        <TestApiProvider
+          apis={[
+            [configApiRef, configApiMock],
+            [searchApiRef, searchApiMock],
+          ]}
         >
-          <SearchType name={name} values={values} />
-        </SearchContextProvider>,
+          <SearchContextProvider
+            initialState={{
+              ...initialState,
+              types: [values[0]],
+            }}
+          >
+            <SearchType name={name} values={values} />
+          </SearchContextProvider>
+        </TestApiProvider>,
       );
 
       await waitFor(() => {
         expect(screen.getByText(name)).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('button'));
+      await userEvent.click(screen.getByRole('button'));
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
@@ -104,16 +125,23 @@ describe('SearchType', () => {
 
     it('Renders correctly based on type filter defaultValue', async () => {
       render(
-        <SearchContextProvider initialState={initialState}>
-          <SearchType name={name} values={values} defaultValue={values[0]} />
-        </SearchContextProvider>,
+        <TestApiProvider
+          apis={[
+            [configApiRef, configApiMock],
+            [searchApiRef, searchApiMock],
+          ]}
+        >
+          <SearchContextProvider initialState={initialState}>
+            <SearchType name={name} values={values} defaultValue={values[0]} />
+          </SearchContextProvider>
+        </TestApiProvider>,
       );
 
       await waitFor(() => {
         expect(screen.getByText(name)).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('button'));
+      await userEvent.click(screen.getByRole('button'));
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
@@ -130,9 +158,16 @@ describe('SearchType', () => {
 
     it('Selecting a value sets type filter state', async () => {
       render(
-        <SearchContextProvider initialState={initialState}>
-          <SearchType name={name} values={values} />
-        </SearchContextProvider>,
+        <TestApiProvider
+          apis={[
+            [configApiRef, configApiMock],
+            [searchApiRef, searchApiMock],
+          ]}
+        >
+          <SearchContextProvider initialState={initialState}>
+            <SearchType name={name} values={values} />
+          </SearchContextProvider>
+        </TestApiProvider>,
       );
 
       await waitFor(() => {
@@ -141,23 +176,23 @@ describe('SearchType', () => {
 
       const button = screen.getByRole('button');
 
-      userEvent.click(button);
+      await userEvent.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('option', { name: values[0] }));
+      await userEvent.click(screen.getByRole('option', { name: values[0] }));
 
       await waitFor(() => {
-        expect(query).toHaveBeenLastCalledWith(
+        expect(searchApiMock.query).toHaveBeenLastCalledWith(
           expect.objectContaining({
             types: [values[0]],
           }),
         );
       });
 
-      userEvent.click(button);
+      await userEvent.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
@@ -166,14 +201,21 @@ describe('SearchType', () => {
 
     it('Selecting none defaults to empty state', async () => {
       render(
-        <SearchContextProvider
-          initialState={{
-            ...initialState,
-            types: typeValues,
-          }}
+        <TestApiProvider
+          apis={[
+            [configApiRef, configApiMock],
+            [searchApiRef, searchApiMock],
+          ]}
         >
-          <SearchType name={name} values={values} />
-        </SearchContextProvider>,
+          <SearchContextProvider
+            initialState={{
+              ...initialState,
+              types: typeValues,
+            }}
+          >
+            <SearchType name={name} values={values} />
+          </SearchContextProvider>
+        </TestApiProvider>,
       );
 
       await waitFor(() => {
@@ -182,32 +224,34 @@ describe('SearchType', () => {
 
       const button = screen.getByRole('button');
 
-      userEvent.click(button);
+      await userEvent.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('option', { name: values[0] }));
+      await userEvent.click(screen.getByRole('option', { name: values[0] }));
 
       await waitFor(() => {
-        expect(query).toHaveBeenLastCalledWith(
+        expect(searchApiMock.query).toHaveBeenLastCalledWith(
           expect.objectContaining({
             types: [...typeValues, values[0]],
           }),
         );
       });
 
-      userEvent.click(button);
+      await userEvent.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole('listbox')).toBeInTheDocument();
       });
 
-      userEvent.click(screen.getByRole('option', { name: values[0] }));
+      await userEvent.click(screen.getByRole('option', { name: values[0] }));
 
       await waitFor(() => {
-        expect(query).toHaveBeenLastCalledWith(expect.objectContaining([]));
+        expect(searchApiMock.query).toHaveBeenLastCalledWith(
+          expect.objectContaining([]),
+        );
       });
     });
   });

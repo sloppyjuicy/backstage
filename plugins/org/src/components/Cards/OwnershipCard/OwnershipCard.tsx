@@ -14,250 +14,136 @@
  * limitations under the License.
  */
 
-import { Entity } from '@backstage/catalog-model';
-import {
-  catalogApiRef,
-  isOwnerOf,
-  useEntity,
-} from '@backstage/plugin-catalog-react';
-import { BackstageTheme, genPageTheme } from '@backstage/theme';
-import {
-  Box,
-  createStyles,
-  Grid,
-  makeStyles,
-  Tooltip,
-  Typography,
-} from '@material-ui/core';
-import React from 'react';
-import { useAsync } from 'react-use';
+import { InfoCard, InfoCardVariants } from '@backstage/core-components';
+import { useEntity } from '@backstage/plugin-catalog-react';
+import List from '@material-ui/core/List';
+import ListItem from '@material-ui/core/ListItem';
+import ListItemSecondaryAction from '@material-ui/core/ListItemSecondaryAction';
+import ListItemText from '@material-ui/core/ListItemText';
+import Switch from '@material-ui/core/Switch';
+import Tooltip from '@material-ui/core/Tooltip';
+import { makeStyles } from '@material-ui/core/styles';
+import React, { useEffect, useState } from 'react';
+import { ComponentsGrid } from './ComponentsGrid';
+import { EntityRelationAggregation } from '../types';
 
-import {
-  InfoCard,
-  InfoCardVariants,
-  Progress,
-  ResponseErrorPanel,
-} from '@backstage/core-components';
-import { useApi } from '@backstage/core-plugin-api';
-
-type EntitiesKinds = 'Component' | 'API';
-type EntitiesTypes =
-  | 'service'
-  | 'website'
-  | 'library'
-  | 'documentation'
-  | 'api'
-  | 'tool';
-
-const createPageTheme = (
-  theme: BackstageTheme,
-  shapeKey: string,
-  colorsKey: string,
-) => {
-  const { colors } = theme.getPageTheme({ themeId: colorsKey });
-  const { shape } = theme.getPageTheme({ themeId: shapeKey });
-  return genPageTheme(colors, shape).backgroundImage;
-};
-
-const useStyles = makeStyles((theme: BackstageTheme) =>
-  createStyles({
-    card: {
-      border: `1px solid ${theme.palette.divider}`,
-      boxShadow: theme.shadows[2],
-      borderRadius: '4px',
-      padding: theme.spacing(2),
-      color: '#fff',
-      transition: `${theme.transitions.duration.standard}ms`,
-      '&:hover': {
-        boxShadow: theme.shadows[4],
-      },
+const useStyles = makeStyles(theme => ({
+  card: {
+    maxHeight: '100%',
+  },
+  cardContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  list: {
+    [theme.breakpoints.down('xs')]: {
+      padding: `0 0 12px`,
     },
-    bold: {
-      fontWeight: theme.typography.fontWeightBold,
+  },
+  listItemText: {
+    [theme.breakpoints.down('xs')]: {
+      paddingRight: 0,
+      paddingLeft: 0,
     },
-    service: {
-      background: createPageTheme(theme, 'home', 'service'),
+  },
+  listItemSecondaryAction: {
+    [theme.breakpoints.down('xs')]: {
+      width: '100%',
+      top: 'auto',
+      right: 'auto',
+      position: 'relative',
+      transform: 'unset',
     },
-    website: {
-      background: createPageTheme(theme, 'home', 'website'),
-    },
-    library: {
-      background: createPageTheme(theme, 'home', 'library'),
-    },
-    documentation: {
-      background: createPageTheme(theme, 'home', 'documentation'),
-    },
-    api: {
-      background: createPageTheme(theme, 'home', 'home'),
-    },
-    tool: {
-      background: createPageTheme(theme, 'home', 'tool'),
-    },
-  }),
-);
+  },
+  grid: {
+    overflowY: 'auto',
+    marginTop: 0,
+  },
+}));
 
-const listEntitiesBy = (
-  entities: Array<Entity>,
-  kind: EntitiesKinds,
-  type?: EntitiesTypes,
-) =>
-  entities.filter(
-    e => e.kind === kind && (type ? e?.spec?.type === type : true),
-  );
-
-const countEntitiesBy = (
-  entities: Array<Entity>,
-  kind: EntitiesKinds,
-  type?: EntitiesTypes,
-) => listEntitiesBy(entities, kind, type).length;
-
-const EntityCountTile = ({
-  counter,
-  className,
-  entities,
-  name,
-}: {
-  counter: number;
-  className: EntitiesTypes;
-  entities: Entity[];
-  name: string;
-}) => {
-  let entityNames;
-  const classes = useStyles();
-
-  if (entities.length < 20) {
-    entityNames = entities.map(e => e.metadata.name).join(', ');
-  } else {
-    entityNames = `${entities
-      .map(e => e.metadata.name)
-      .slice(0, 20)
-      .join(', ')}, ...`;
-  }
-
-  return (
-    <Tooltip title={entityNames} arrow>
-      <Box
-        className={`${classes.card} ${classes[className]}`}
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-      >
-        <Typography className={classes.bold} variant="h6">
-          {counter}
-        </Typography>
-        <Typography className={classes.bold} variant="h6">
-          {name}
-        </Typography>
-      </Box>
-    </Tooltip>
-  );
-};
-
-export const OwnershipCard = ({
-  variant,
-}: {
-  /** @deprecated The entity is now grabbed from context instead */
-  entity?: Entity;
+/** @public */
+export const OwnershipCard = (props: {
   variant?: InfoCardVariants;
+  entityFilterKind?: string[];
+  hideRelationsToggle?: boolean;
+  /** @deprecated Please use relationAggregation instead */
+  relationsType?: EntityRelationAggregation;
+  relationAggregation?: EntityRelationAggregation;
+  entityLimit?: number;
 }) => {
-  const { entity } = useEntity();
-  const catalogApi = useApi(catalogApiRef);
   const {
-    loading,
-    error,
-    value: componentsWithCounters,
-  } = useAsync(async () => {
-    const kinds = ['Component', 'API'];
-    const entitiesList = await catalogApi.getEntities({
-      filter: {
-        kind: kinds,
-      },
-      fields: [
-        'kind',
-        'metadata.name',
-        'metadata.namespace',
-        'spec.type',
-        'relations',
-      ],
-    });
+    variant,
+    entityFilterKind,
+    hideRelationsToggle,
+    entityLimit = 6,
+  } = props;
+  const relationAggregation = props.relationAggregation ?? props.relationsType;
+  const relationsToggle =
+    hideRelationsToggle === undefined ? false : hideRelationsToggle;
+  const classes = useStyles();
+  const { entity } = useEntity();
 
-    const ownedEntitiesList = entitiesList.items.filter(component =>
-      isOwnerOf(entity, component),
-    );
+  const defaultRelationAggregation =
+    entity.kind === 'User' ? 'aggregated' : 'direct';
+  const [getRelationAggregation, setRelationAggregation] = useState(
+    relationAggregation ?? defaultRelationAggregation,
+  );
 
-    return [
-      {
-        counter: countEntitiesBy(ownedEntitiesList, 'Component', 'service'),
-        className: 'service',
-        entities: listEntitiesBy(ownedEntitiesList, 'Component', 'service'),
-        name: 'Services',
-      },
-      {
-        counter: countEntitiesBy(
-          ownedEntitiesList,
-          'Component',
-          'documentation',
-        ),
-        className: 'documentation',
-        entities: listEntitiesBy(
-          ownedEntitiesList,
-          'Component',
-          'documentation',
-        ),
-        name: 'Documentation',
-      },
-      {
-        counter: countEntitiesBy(ownedEntitiesList, 'API'),
-        className: 'api',
-        entities: listEntitiesBy(ownedEntitiesList, 'API'),
-        name: 'APIs',
-      },
-      {
-        counter: countEntitiesBy(ownedEntitiesList, 'Component', 'library'),
-        className: 'library',
-        entities: listEntitiesBy(ownedEntitiesList, 'Component', 'library'),
-        name: 'Libraries',
-      },
-      {
-        counter: countEntitiesBy(ownedEntitiesList, 'Component', 'website'),
-        className: 'website',
-        entities: listEntitiesBy(ownedEntitiesList, 'Component', 'website'),
-        name: 'Websites',
-      },
-      {
-        counter: countEntitiesBy(ownedEntitiesList, 'Component', 'tool'),
-        className: 'tool',
-        entities: listEntitiesBy(ownedEntitiesList, 'Component', 'tool'),
-        name: 'Tools',
-      },
-    ] as Array<{
-      counter: number;
-      className: EntitiesTypes;
-      entities: Entity[];
-      name: string;
-    }>;
-  }, [catalogApi, entity]);
-
-  if (loading) {
-    return <Progress />;
-  } else if (error) {
-    return <ResponseErrorPanel error={error} />;
-  }
+  useEffect(() => {
+    if (!relationAggregation) {
+      setRelationAggregation(defaultRelationAggregation);
+    }
+  }, [setRelationAggregation, defaultRelationAggregation, relationAggregation]);
 
   return (
-    <InfoCard title="Ownership" variant={variant}>
-      <Grid container>
-        {componentsWithCounters?.map(c => (
-          <Grid item xs={6} md={6} lg={4} key={c.name}>
-            <EntityCountTile
-              counter={c.counter}
-              className={c.className}
-              entities={c.entities}
-              name={c.name}
-            />
-          </Grid>
-        ))}
-      </Grid>
+    <InfoCard
+      title="Ownership"
+      variant={variant}
+      className={classes.card}
+      cardClassName={classes.cardContent}
+    >
+      {!relationsToggle && (
+        <List dense>
+          <ListItem className={classes.list}>
+            <ListItemText className={classes.listItemText} />
+            <ListItemSecondaryAction
+              className={classes.listItemSecondaryAction}
+            >
+              Direct Relations
+              <Tooltip
+                placement="top"
+                arrow
+                title={`${
+                  getRelationAggregation === 'direct' ? 'Direct' : 'Aggregated'
+                } Relations`}
+              >
+                <Switch
+                  color="primary"
+                  checked={getRelationAggregation !== 'direct'}
+                  onChange={() => {
+                    const updatedRelationAggregation =
+                      getRelationAggregation === 'direct'
+                        ? 'aggregated'
+                        : 'direct';
+                    setRelationAggregation(updatedRelationAggregation);
+                  }}
+                  name="pin"
+                  inputProps={{ 'aria-label': 'Ownership Type Switch' }}
+                />
+              </Tooltip>
+              Aggregated Relations
+            </ListItemSecondaryAction>
+          </ListItem>
+        </List>
+      )}
+      <ComponentsGrid
+        className={classes.grid}
+        entity={entity}
+        entityLimit={entityLimit}
+        relationAggregation={getRelationAggregation}
+        entityFilterKind={entityFilterKind}
+      />
     </InfoCard>
   );
 };

@@ -14,21 +14,17 @@
  * limitations under the License.
  */
 
-import React, { useContext, Context } from 'react';
-import { renderHook } from '@testing-library/react-hooks';
-import { VersionedValue } from '../lib/versionedValues';
-import { getGlobalSingleton } from '../lib/globalObject';
+import React from 'react';
+import { renderHook } from '@testing-library/react';
+import { useVersionedContext } from '@backstage/version-bridge';
 import { AppContext as AppContextV1 } from './types';
 import { AppContextProvider } from './AppContext';
 
 describe('v1 consumer', () => {
-  const AppContext =
-    getGlobalSingleton<Context<VersionedValue<{ 1: AppContextV1 }>>>(
-      'app-context',
-    );
-
   function useMockAppV1(): AppContextV1 {
-    const impl = useContext(AppContext)?.atVersion(1);
+    const impl = useVersionedContext<{ 1: AppContextV1 }>(
+      'app-context',
+    )?.atVersion(1);
     if (!impl) {
       throw new Error('no impl');
     }
@@ -40,10 +36,11 @@ describe('v1 consumer', () => {
       getPlugins: jest.fn(),
       getComponents: jest.fn(),
       getSystemIcon: jest.fn(),
+      getSystemIcons: jest.fn(),
     };
 
     const renderedHook = renderHook(() => useMockAppV1(), {
-      wrapper: ({ children }) => (
+      wrapper: ({ children }: React.PropsWithChildren<{}>) => (
         <AppContextProvider appContext={mockContext} children={children} />
       ),
     });

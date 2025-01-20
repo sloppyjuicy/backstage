@@ -14,7 +14,13 @@
  * limitations under the License.
  */
 
-import program from 'commander';
+/**
+ * CLI for developing Backstage plugins and apps
+ *
+ * @packageDocumentation
+ */
+
+import { program } from 'commander';
 import chalk from 'chalk';
 import { exitWithError } from './lib/errors';
 import { version } from './lib/version';

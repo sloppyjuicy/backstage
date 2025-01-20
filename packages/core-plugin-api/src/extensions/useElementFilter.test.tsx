@@ -15,14 +15,11 @@
  */
 import React, { ReactNode } from 'react';
 import { useElementFilter } from './useElementFilter';
-import { renderHook } from '@testing-library/react-hooks';
+import { renderHook } from '@testing-library/react';
 import { attachComponentData } from './componentData';
 import { featureFlagsApiRef } from '../apis';
-import {
-  ApiProvider,
-  ApiRegistry,
-  LocalStorageFeatureFlags,
-} from '@backstage/core-app-api';
+import { LocalStorageFeatureFlags } from '@backstage/core-app-api';
+import { TestApiProvider } from '@backstage/test-utils';
 
 const WRAPPING_COMPONENT_KEY = 'core.blob.testing';
 const INNER_COMPONENT_KEY = 'core.blob2.testing';
@@ -44,10 +41,15 @@ const FeatureFlagComponent = (_props: {
 }) => null;
 attachComponentData(FeatureFlagComponent, 'core.featureFlagged', true);
 const mockFeatureFlagsApi = new LocalStorageFeatureFlags();
-const Wrapper = ({ children }: { children?: React.ReactNode }) => (
-  <ApiProvider apis={ApiRegistry.with(featureFlagsApiRef, mockFeatureFlagsApi)}>
+const Wrapper = ({
+  children,
+}: {
+  children?: React.ReactNode;
+  tree?: ReactNode;
+}) => (
+  <TestApiProvider apis={[[featureFlagsApiRef, mockFeatureFlagsApi]]}>
     {children}
-  </ApiProvider>
+  </TestApiProvider>
 );
 
 describe('useElementFilter', () => {
@@ -314,23 +316,23 @@ describe('useElementFilter', () => {
       </MockComponent>
     );
 
-    const { result } = renderHook(
-      props =>
-        useElementFilter(props.tree, elements =>
-          elements
-            .selectByComponentData({
-              key: WRAPPING_COMPONENT_KEY,
-              withStrictError: 'Could not find component',
-            })
-            .findComponentData({ key: INNER_COMPONENT_KEY }),
-        ),
-      {
-        initialProps: { tree },
-        wrapper: Wrapper,
-      },
-    );
-
-    expect(result.error.message).toEqual('Could not find component');
+    expect(() =>
+      renderHook(
+        props =>
+          useElementFilter(props.tree, elements =>
+            elements
+              .selectByComponentData({
+                key: WRAPPING_COMPONENT_KEY,
+                withStrictError: 'Could not find component',
+              })
+              .findComponentData({ key: INNER_COMPONENT_KEY }),
+          ),
+        {
+          initialProps: { tree },
+          wrapper: Wrapper,
+        },
+      ),
+    ).toThrow('Could not find component');
   });
 
   it('should support fragments and text node iteration', () => {

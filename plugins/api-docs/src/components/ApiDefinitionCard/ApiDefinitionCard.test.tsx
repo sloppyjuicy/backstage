@@ -16,25 +16,27 @@
 
 import { ApiEntity } from '@backstage/catalog-model';
 import { EntityProvider } from '@backstage/plugin-catalog-react';
-import { renderInTestApp } from '@backstage/test-utils';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
 import { waitFor } from '@testing-library/react';
 import React from 'react';
 import { ApiDocsConfig, apiDocsConfigRef } from '../../config';
 import { OpenApiDefinitionWidget } from '../OpenApiDefinitionWidget';
 import { ApiDefinitionCard } from './ApiDefinitionCard';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+
+// Make sure this is in the require cache before the async rendering happens
+import '../OpenApiDefinitionWidget/OpenApiDefinition';
 
 describe('<ApiDefinitionCard />', () => {
   const apiDocsConfig: jest.Mocked<ApiDocsConfig> = {
     getApiDefinitionWidget: jest.fn(),
   } as any;
-  let Wrapper: React.ComponentType;
+  let Wrapper: React.ComponentType<React.PropsWithChildren<{}>>;
 
   beforeEach(() => {
-    const apis = ApiRegistry.with(apiDocsConfigRef, apiDocsConfig);
-
     Wrapper = ({ children }: { children?: React.ReactNode }) => (
-      <ApiProvider apis={apis}>{children}</ApiProvider>
+      <TestApiProvider apis={[[apiDocsConfigRef, apiDocsConfig]]}>
+        {children}
+      </TestApiProvider>
     );
   });
 
@@ -63,6 +65,7 @@ paths:
       kind: 'API',
       metadata: {
         name: 'my-name',
+        title: 'My Name',
       },
       spec: {
         type: 'openapi',
@@ -89,7 +92,7 @@ paths:
     );
 
     await waitFor(() => {
-      expect(getByText(/my-name/i)).toBeInTheDocument();
+      expect(getByText(/My Name/i)).toBeInTheDocument();
       expect(getByText(/OpenAPI/)).toBeInTheDocument();
       expect(getByText(/Raw/i)).toBeInTheDocument();
       expect(getByText(/List all artists/i)).toBeInTheDocument();
@@ -102,6 +105,7 @@ paths:
       kind: 'API',
       metadata: {
         name: 'my-name',
+        title: 'My Name',
       },
       spec: {
         type: 'custom-type',
@@ -111,7 +115,7 @@ paths:
       },
     };
 
-    const { getByText } = await renderInTestApp(
+    const { getByText, getAllByText } = await renderInTestApp(
       <Wrapper>
         <EntityProvider entity={apiEntity}>
           <ApiDefinitionCard />
@@ -119,8 +123,12 @@ paths:
       </Wrapper>,
     );
 
-    expect(getByText(/my-name/i)).toBeInTheDocument();
+    expect(getByText(/My Name/i)).toBeInTheDocument();
     expect(getByText(/custom-type/i)).toBeInTheDocument();
-    expect(getByText(/Custom Definition/i)).toBeInTheDocument();
+    expect(
+      getAllByText(
+        (_text, element) => element?.textContent === 'Custom Definition',
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });

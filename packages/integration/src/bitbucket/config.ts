@@ -15,6 +15,7 @@
  */
 
 import { Config } from '@backstage/config';
+import { trimEnd } from 'lodash';
 import { isValidHost } from '../helpers';
 
 const BITBUCKET_HOST = 'bitbucket.org';
@@ -22,6 +23,9 @@ const BITBUCKET_API_BASE_URL = 'https://api.bitbucket.org/2.0';
 
 /**
  * The configuration parameters for a single Bitbucket API provider.
+ *
+ * @public
+ * @deprecated bitbucket integration replaced by integrations bitbucketCloud and bitbucketServer.
  */
 export type BitbucketIntegrationConfig = {
   /**
@@ -33,12 +37,10 @@ export type BitbucketIntegrationConfig = {
    * The base URL of the API of this provider, e.g. "https://api.bitbucket.org/2.0",
    * with no trailing slash.
    *
-   * May be omitted specifically for Bitbucket Cloud; then it will be deduced.
-   *
-   * The API will always be preferred if both its base URL and a token are
-   * present.
+   * Values omitted at the optional property at the app-config will be deduced
+   * from the "host" value.
    */
-  apiBaseUrl?: string;
+  apiBaseUrl: string;
 
   /**
    * The authorization token to use for requests to a Bitbucket Server provider.
@@ -65,16 +67,18 @@ export type BitbucketIntegrationConfig = {
 /**
  * Reads a single Bitbucket integration config.
  *
- * @param config The config object of a single integration
+ * @param config - The config object of a single integration
+ * @public
+ * @deprecated bitbucket integration replaced by integrations bitbucketCloud and bitbucketServer.
  */
 export function readBitbucketIntegrationConfig(
   config: Config,
 ): BitbucketIntegrationConfig {
   const host = config.getOptionalString('host') ?? BITBUCKET_HOST;
   let apiBaseUrl = config.getOptionalString('apiBaseUrl');
-  const token = config.getOptionalString('token');
+  const token = config.getOptionalString('token')?.trim();
   const username = config.getOptionalString('username');
-  const appPassword = config.getOptionalString('appPassword');
+  const appPassword = config.getOptionalString('appPassword')?.trim();
 
   if (!isValidHost(host)) {
     throw new Error(
@@ -83,9 +87,11 @@ export function readBitbucketIntegrationConfig(
   }
 
   if (apiBaseUrl) {
-    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
+    apiBaseUrl = trimEnd(apiBaseUrl, '/');
   } else if (host === BITBUCKET_HOST) {
     apiBaseUrl = BITBUCKET_API_BASE_URL;
+  } else {
+    apiBaseUrl = `https://${host}/rest/api/1.0`;
   }
 
   return {
@@ -101,7 +107,9 @@ export function readBitbucketIntegrationConfig(
  * Reads a set of Bitbucket integration configs, and inserts some defaults for
  * public Bitbucket if not specified.
  *
- * @param configs All of the integration config objects
+ * @param configs - All of the integration config objects
+ * @public
+ * @deprecated bitbucket integration replaced by integrations bitbucketCloud and bitbucketServer.
  */
 export function readBitbucketIntegrationConfigs(
   configs: Config[],

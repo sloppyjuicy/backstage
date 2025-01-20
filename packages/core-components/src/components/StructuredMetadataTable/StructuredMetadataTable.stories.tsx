@@ -15,7 +15,7 @@
  */
 import React, { PropsWithChildren } from 'react';
 import { InfoCard } from '../../layout/InfoCard';
-import { Grid } from '@material-ui/core';
+import Grid from '@material-ui/core/Grid';
 import { StructuredMetadataTable } from './StructuredMetadataTable';
 
 const cardContentStyle = { heightX: 200, width: 500 };
@@ -67,6 +67,22 @@ export const NotDenseTable = () => (
     >
       <div style={cardContentStyle}>
         <StructuredMetadataTable metadata={metadata} dense={false} />
+      </div>
+    </InfoCard>
+  </Wrapper>
+);
+
+export const WithoutKeyFormatting = () => (
+  <Wrapper>
+    <InfoCard
+      title="Structured Metadata Table without key formatting"
+      subheader="Wrapped in InfoCard"
+    >
+      <div style={cardContentStyle}>
+        <StructuredMetadataTable
+          metadata={metadata}
+          options={{ titleFormat: key => key }}
+        />
       </div>
     </InfoCard>
   </Wrapper>

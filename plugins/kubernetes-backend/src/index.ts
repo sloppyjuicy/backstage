@@ -14,7 +14,13 @@
  * limitations under the License.
  */
 
-export * from './service/router';
-export * from './types/types';
+/**
+ * A Backstage backend plugin that integrates towards Kubernetes
+ *
+ * @packageDocumentation
+ */
 
-export { DEFAULT_OBJECTS } from './service/KubernetesFanOutHandler';
+export { kubernetesPlugin as default } from './plugin';
+export * from './auth';
+export * from './service';
+export * from './types';

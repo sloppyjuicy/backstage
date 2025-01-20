@@ -15,11 +15,38 @@
  */
 
 import React from 'react';
-import { useOutlet } from 'react-router';
-import { LegacyTechDocsHome } from './LegacyTechDocsHome';
+import { useOutlet } from 'react-router-dom';
+import {
+  TableColumn,
+  TableProps,
+  TableOptions,
+} from '@backstage/core-components';
+import {
+  EntityListPagination,
+  EntityOwnerPickerProps,
+  UserListFilterKind,
+} from '@backstage/plugin-catalog-react';
+import { DefaultTechDocsHome } from './DefaultTechDocsHome';
+import { DocsTableRow } from './Tables';
 
-export const TechDocsIndexPage = () => {
+/**
+ * Props for {@link TechDocsIndexPage}
+ *
+ * @public
+ */
+export type TechDocsIndexPageProps = {
+  initialFilter?: UserListFilterKind;
+  columns?: TableColumn<DocsTableRow>[];
+  actions?: TableProps<DocsTableRow>['actions'];
+  ownerPickerMode?: EntityOwnerPickerProps['mode'];
+  pagination?: EntityListPagination;
+  options?: TableOptions<DocsTableRow>;
+  PageWrapper?: React.FC;
+  CustomHeader?: React.FC;
+};
+
+export const TechDocsIndexPage = (props: TechDocsIndexPageProps) => {
   const outlet = useOutlet();
 
-  return outlet || <LegacyTechDocsHome />;
+  return outlet || <DefaultTechDocsHome {...props} />;
 };
