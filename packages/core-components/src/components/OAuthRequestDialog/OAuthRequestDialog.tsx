@@ -14,37 +14,62 @@
  * limitations under the License.
  */
 
-import {
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  List,
-  makeStyles,
-  Theme,
-  Button,
-} from '@material-ui/core';
+import { makeStyles } from '@material-ui/core/styles';
+import Dialog from '@material-ui/core/Dialog';
+import DialogActions from '@material-ui/core/DialogActions';
+import DialogContent from '@material-ui/core/DialogContent';
+import DialogTitle from '@material-ui/core/DialogTitle';
+import List from '@material-ui/core/List';
+import Button from '@material-ui/core/Button';
 import React, { useMemo, useState } from 'react';
-import { useObservable } from 'react-use';
+import useObservable from 'react-use/esm/useObservable';
 import LoginRequestListItem from './LoginRequestListItem';
-import { useApi, oauthRequestApiRef } from '@backstage/core-plugin-api';
+import {
+  useApi,
+  configApiRef,
+  oauthRequestApiRef,
+} from '@backstage/core-plugin-api';
+import Typography from '@material-ui/core/Typography';
+import { coreComponentsTranslationRef } from '../../translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
-const useStyles = makeStyles<Theme>(theme => ({
-  dialog: {
-    paddingTop: theme.spacing(1),
-  },
-  title: {
-    minWidth: 0,
-  },
-  contentList: {
-    padding: 0,
-  },
-}));
+export type OAuthRequestDialogClassKey =
+  | 'dialog'
+  | 'title'
+  | 'contentList'
+  | 'actionButtons';
 
-export const OAuthRequestDialog = () => {
+const useStyles = makeStyles(
+  theme => ({
+    dialog: {
+      paddingTop: theme.spacing(1),
+    },
+    title: {
+      minWidth: 0,
+    },
+    titleHeading: {
+      fontSize: theme.typography.h6.fontSize,
+    },
+    contentList: {
+      padding: 0,
+    },
+    actionButtons: {
+      padding: theme.spacing(2, 0),
+    },
+  }),
+  { name: 'OAuthRequestDialog' },
+);
+
+export function OAuthRequestDialog(_props: {}) {
   const classes = useStyles();
   const [busy, setBusy] = useState(false);
   const oauthRequestApi = useApi(oauthRequestApiRef);
+  const configApi = useApi(configApiRef);
+  const { t } = useTranslationRef(coreComponentsTranslationRef);
+
+  const authRedirect =
+    configApi.getOptionalBoolean('enableExperimentalRedirectFlow') ?? false;
+
   const requests = useObservable(
     useMemo(() => oauthRequestApi.authRequest$(), [oauthRequestApi]),
     [],
@@ -60,27 +85,44 @@ export const OAuthRequestDialog = () => {
       fullWidth
       maxWidth="xs"
       classes={{ paper: classes.dialog }}
+      aria-labelledby="oauth-req-dialog-title"
     >
-      <DialogTitle classes={{ root: classes.title }}>
-        Login Required
-      </DialogTitle>
+      <main>
+        <DialogTitle
+          classes={{ root: classes.title }}
+          id="oauth-req-dialog-title"
+        >
+          <Typography
+            className={classes.titleHeading}
+            variant="h1"
+            variantMapping={{ h1: 'span' }}
+          >
+            {t('oauthRequestDialog.title')}
+          </Typography>
+          {authRedirect ? (
+            <Typography>{t('oauthRequestDialog.authRedirectTitle')}</Typography>
+          ) : null}
+        </DialogTitle>
 
-      <DialogContent classes={{ root: classes.contentList }}>
-        <List>
-          {requests.map(request => (
-            <LoginRequestListItem
-              key={request.provider.title}
-              request={request}
-              busy={busy}
-              setBusy={setBusy}
-            />
-          ))}
-        </List>
-      </DialogContent>
+        <DialogContent dividers classes={{ root: classes.contentList }}>
+          <List>
+            {requests.map(request => (
+              <LoginRequestListItem
+                key={request.provider.title}
+                request={request}
+                busy={busy}
+                setBusy={setBusy}
+              />
+            ))}
+          </List>
+        </DialogContent>
+      </main>
 
-      <DialogActions>
-        <Button onClick={handleRejectAll}>Reject All</Button>
+      <DialogActions classes={{ root: classes.actionButtons }}>
+        <Button onClick={handleRejectAll}>
+          {t('oauthRequestDialog.rejectAll')}
+        </Button>
       </DialogActions>
     </Dialog>
   );
-};
+}

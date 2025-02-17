@@ -14,31 +14,6 @@
  * limitations under the License.
  */
 
-import { BackstageTheme } from '@backstage/theme';
-import {
-  IconButton,
-  makeStyles,
-  Typography,
-  useTheme,
-  withStyles,
-} from '@material-ui/core';
-// Material-table is not using the standard icons available in in material-ui. https://github.com/mbrn/material-table/issues/51
-import AddBox from '@material-ui/icons/AddBox';
-import ArrowUpward from '@material-ui/icons/ArrowUpward';
-import Check from '@material-ui/icons/Check';
-import ChevronLeft from '@material-ui/icons/ChevronLeft';
-import ChevronRight from '@material-ui/icons/ChevronRight';
-import Clear from '@material-ui/icons/Clear';
-import DeleteOutline from '@material-ui/icons/DeleteOutline';
-import Edit from '@material-ui/icons/Edit';
-import FilterList from '@material-ui/icons/FilterList';
-import FirstPage from '@material-ui/icons/FirstPage';
-import LastPage from '@material-ui/icons/LastPage';
-import Remove from '@material-ui/icons/Remove';
-import SaveAlt from '@material-ui/icons/SaveAlt';
-import Search from '@material-ui/icons/Search';
-import ViewColumn from '@material-ui/icons/ViewColumn';
-import { isEqual, transform } from 'lodash';
 import MTable, {
   Column,
   Icons,
@@ -48,40 +23,98 @@ import MTable, {
   MTableToolbar,
   Options,
 } from '@material-table/core';
+import Box from '@material-ui/core/Box';
+import IconButton from '@material-ui/core/IconButton';
+import {
+  makeStyles,
+  Theme,
+  useTheme,
+  withStyles,
+} from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
+import AddBox from '@material-ui/icons/AddBox';
+import ArrowUpward from '@material-ui/icons/ArrowUpward';
+import Check from '@material-ui/icons/Check';
+import ChevronLeft from '@material-ui/icons/ChevronLeft';
+import ChevronRight from '@material-ui/icons/ChevronRight';
+import Clear from '@material-ui/icons/Clear';
+import DeleteOutline from '@material-ui/icons/DeleteOutline';
+import Edit from '@material-ui/icons/Edit';
+import FilterList from '@material-ui/icons/FilterList';
+import Search from '@material-ui/icons/Search';
+import FirstPage from '@material-ui/icons/FirstPage';
+import LastPage from '@material-ui/icons/LastPage';
+import Remove from '@material-ui/icons/Remove';
+import SaveAlt from '@material-ui/icons/SaveAlt';
+import ViewColumn from '@material-ui/icons/ViewColumn';
+import { isEqual, transform } from 'lodash';
 import React, {
   forwardRef,
   MutableRefObject,
   ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
-import { CheckboxTreeProps } from '../CheckboxTree/CheckboxTree';
+
 import { SelectProps } from '../Select/Select';
 import { Filter, Filters, SelectedFilters, Without } from './Filters';
+import { TableLoadingBody } from './TableLoadingBody';
 
+// Material-table is not using the standard icons available in in material-ui. https://github.com/mbrn/material-table/issues/51
 const tableIcons: Icons = {
-  Add: forwardRef((props, ref) => <AddBox {...props} ref={ref} />),
-  Check: forwardRef((props, ref) => <Check {...props} ref={ref} />),
-  Clear: forwardRef((props, ref) => <Clear {...props} ref={ref} />),
-  Delete: forwardRef((props, ref) => <DeleteOutline {...props} ref={ref} />),
-  DetailPanel: forwardRef((props, ref) => (
+  Add: forwardRef<SVGSVGElement>((props, ref) => (
+    <AddBox {...props} ref={ref} />
+  )),
+  Check: forwardRef<SVGSVGElement>((props, ref) => (
+    <Check {...props} ref={ref} />
+  )),
+  Clear: forwardRef<SVGSVGElement>((props, ref) => (
+    <Clear {...props} ref={ref} />
+  )),
+  Delete: forwardRef<SVGSVGElement>((props, ref) => (
+    <DeleteOutline {...props} ref={ref} />
+  )),
+  DetailPanel: forwardRef<SVGSVGElement>((props, ref) => (
     <ChevronRight {...props} ref={ref} />
   )),
-  Edit: forwardRef((props, ref) => <Edit {...props} ref={ref} />),
-  Export: forwardRef((props, ref) => <SaveAlt {...props} ref={ref} />),
-  Filter: forwardRef((props, ref) => <FilterList {...props} ref={ref} />),
-  FirstPage: forwardRef((props, ref) => <FirstPage {...props} ref={ref} />),
-  LastPage: forwardRef((props, ref) => <LastPage {...props} ref={ref} />),
-  NextPage: forwardRef((props, ref) => <ChevronRight {...props} ref={ref} />),
-  PreviousPage: forwardRef((props, ref) => (
+  Edit: forwardRef<SVGSVGElement>((props, ref) => (
+    <Edit {...props} ref={ref} />
+  )),
+  Export: forwardRef<SVGSVGElement>((props, ref) => (
+    <SaveAlt {...props} ref={ref} />
+  )),
+  Filter: forwardRef<SVGSVGElement>((props, ref) => (
+    <FilterList {...props} ref={ref} />
+  )),
+  FirstPage: forwardRef<SVGSVGElement>((props, ref) => (
+    <FirstPage {...props} ref={ref} />
+  )),
+  LastPage: forwardRef<SVGSVGElement>((props, ref) => (
+    <LastPage {...props} ref={ref} />
+  )),
+  NextPage: forwardRef<SVGSVGElement>((props, ref) => (
+    <ChevronRight {...props} ref={ref} />
+  )),
+  PreviousPage: forwardRef<SVGSVGElement>((props, ref) => (
     <ChevronLeft {...props} ref={ref} />
   )),
-  ResetSearch: forwardRef((props, ref) => <Clear {...props} ref={ref} />),
-  Search: forwardRef((props, ref) => <Search {...props} ref={ref} />),
-  SortArrow: forwardRef((props, ref) => <ArrowUpward {...props} ref={ref} />),
-  ThirdStateCheck: forwardRef((props, ref) => <Remove {...props} ref={ref} />),
-  ViewColumn: forwardRef((props, ref) => <ViewColumn {...props} ref={ref} />),
+  ResetSearch: forwardRef<SVGSVGElement>((props, ref) => (
+    <Clear {...props} ref={ref} />
+  )),
+  Search: forwardRef<SVGSVGElement>((props, ref) => (
+    <Search {...props} ref={ref} />
+  )),
+  SortArrow: forwardRef<SVGSVGElement>((props, ref) => (
+    <ArrowUpward {...props} ref={ref} />
+  )),
+  ThirdStateCheck: forwardRef<SVGSVGElement>((props, ref) => (
+    <Remove {...props} ref={ref} />
+  )),
+  ViewColumn: forwardRef<SVGSVGElement>((props, ref) => (
+    <ViewColumn {...props} ref={ref} />
+  )),
 };
 
 // TODO: Material table might already have such a function internally that we can use?
@@ -101,65 +134,100 @@ function extractValueByField(data: any, field: string): any | undefined {
   return value;
 }
 
-const StyledMTableHeader = withStyles(theme => ({
-  header: {
-    padding: theme.spacing(1, 2, 1, 2.5),
-    borderTop: `1px solid ${theme.palette.grey.A100}`,
-    borderBottom: `1px solid ${theme.palette.grey.A100}`,
-    // withStyles hasn't a generic overload for theme
-    color: (theme as BackstageTheme).palette.textSubtle,
-    fontWeight: theme.typography.fontWeightBold,
-    position: 'static',
-    wordBreak: 'normal',
-  },
-}))(MTableHeader);
+export type TableHeaderClassKey = 'header';
 
-const StyledMTableToolbar = withStyles(theme => ({
-  root: {
-    padding: theme.spacing(3, 0, 2.5, 2.5),
-  },
-  title: {
-    '& > h6': {
-      fontWeight: 'bold',
+const StyledMTableHeader = withStyles(
+  theme => ({
+    header: {
+      padding: theme.spacing(1, 2, 1, 2.5),
+      borderTop: `1px solid ${theme.palette.grey.A100}`,
+      borderBottom: `1px solid ${theme.palette.grey.A100}`,
+      // withStyles hasn't a generic overload for theme
+      fontWeight: theme.typography.fontWeightBold,
+      position: 'static',
+      wordBreak: 'normal',
+      textTransform: 'uppercase',
     },
-  },
-  searchField: {
-    paddingRight: theme.spacing(2),
-  },
-}))(MTableToolbar);
+  }),
+  { name: 'BackstageTableHeader' },
+)(MTableHeader);
 
-const useFilterStyles = makeStyles<BackstageTheme>(() => ({
-  root: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  title: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    whiteSpace: 'nowrap',
-  },
-}));
+export type TableToolbarClassKey = 'root' | 'title' | 'searchField';
 
-const useTableStyles = makeStyles<BackstageTheme>(() => ({
-  root: {
-    display: 'flex',
-    alignItems: 'start',
-  },
-}));
+const StyledMTableToolbar = withStyles(
+  theme => ({
+    root: {
+      padding: theme.spacing(3, 0, 2.5, 2.5),
+    },
+    title: {
+      '& > h6': {
+        fontWeight: theme.typography.fontWeightBold,
+      },
+    },
+    searchField: {
+      paddingRight: theme.spacing(2),
+    },
+  }),
+  { name: 'BackstageTableToolbar' },
+)(MTableToolbar);
+
+/** @public */
+export type FiltersContainerClassKey = 'root' | 'title';
+
+const useFilterStyles = makeStyles(
+  theme => ({
+    root: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    title: {
+      fontWeight: theme.typography.fontWeightBold,
+      fontSize: 18,
+      whiteSpace: 'nowrap',
+    },
+  }),
+  { name: 'BackstageTableFiltersContainer' },
+);
+
+export type TableClassKey = 'root';
+
+const useTableStyles = makeStyles(
+  () => ({
+    root: {
+      display: 'flex',
+      alignItems: 'start',
+    },
+  }),
+  { name: 'BackstageTable' },
+);
 
 function convertColumns<T extends object>(
   columns: TableColumn<T>[],
-  theme: BackstageTheme,
+  theme: Theme,
 ): TableColumn<T>[] {
   return columns.map(column => {
-    const headerStyle: React.CSSProperties = {};
-    const cellStyle: React.CSSProperties =
-      typeof column.cellStyle === 'object' ? column.cellStyle : {};
+    const headerStyle: React.CSSProperties = column.headerStyle ?? {};
+
+    let cellStyle = column.cellStyle || {};
 
     if (column.highlight) {
       headerStyle.color = theme.palette.textContrast;
-      cellStyle.fontWeight = theme.typography.fontWeightBold;
+
+      if (typeof cellStyle === 'object') {
+        (cellStyle as React.CSSProperties).fontWeight =
+          theme.typography.fontWeightBold;
+      } else {
+        const cellStyleFn = cellStyle as (
+          data: any,
+          rowData: T,
+          column?: Column<T>,
+        ) => React.CSSProperties;
+        cellStyle = (data, rowData, rowColumn) => {
+          const style = cellStyleFn(data, rowData, rowColumn);
+          return { ...style, fontWeight: theme.typography.fontWeightBold };
+        };
+      }
     }
 
     return {
@@ -191,7 +259,7 @@ export interface TableColumn<T extends object = {}> extends Column<T> {
 
 export type TableFilter = {
   column: string;
-  type: 'select' | 'multiple-select' | 'checkbox-tree';
+  type: 'select' | 'multiple-select';
 };
 
 export type TableState = {
@@ -207,8 +275,11 @@ export interface TableProps<T extends object = {}>
   filters?: TableFilter[];
   initialState?: TableState;
   emptyContent?: ReactNode;
+  isLoading?: boolean;
   onStateChange?: (state: TableState) => any;
 }
+
+export interface TableOptions<T extends object = {}> extends Options<T> {}
 
 export function TableToolbar(toolbarProps: {
   toolbarRef: MutableRefObject<any>;
@@ -236,21 +307,21 @@ export function TableToolbar(toolbarProps: {
 
   if (hasFilters) {
     return (
-      <div className={filtersClasses.root}>
-        <div className={filtersClasses.root}>
+      <Box className={filtersClasses.root}>
+        <Box className={filtersClasses.root}>
           <IconButton onClick={toggleFilters} aria-label="filter list">
             <FilterList />
           </IconButton>
           <Typography className={filtersClasses.title}>
             Filters ({selectedFiltersLength})
           </Typography>
-        </div>
+        </Box>
         <StyledMTableToolbar
           {...toolbarProps}
           ref={toolbarRef}
           onSearchChanged={onSearchChanged}
         />
-      </div>
+      </Box>
     );
   }
 
@@ -263,22 +334,29 @@ export function TableToolbar(toolbarProps: {
   );
 }
 
-export function Table<T extends object = {}>({
-  columns,
-  options,
-  title,
-  subtitle,
-  filters,
-  initialState,
-  emptyContent,
-  onStateChange,
-  ...props
-}: TableProps<T>) {
+/**
+ * @public
+ */
+export function Table<T extends object = {}>(props: TableProps<T>) {
+  const {
+    data,
+    columns,
+    emptyContent,
+    options,
+    title,
+    subtitle,
+    localization,
+    filters,
+    initialState,
+    onStateChange,
+    components,
+    isLoading: loading,
+    style,
+    ...restProps
+  } = props;
   const tableClasses = useTableStyles();
 
-  const { data, ...propsWithoutData } = props;
-
-  const theme = useTheme<BackstageTheme>();
+  const theme = useTheme();
 
   const calculatedInitialState = { ...defaultInitialState, ...initialState };
 
@@ -289,13 +367,10 @@ export function Table<T extends object = {}>({
     () => setFiltersOpen(v => !v),
     [setFiltersOpen],
   );
-  const [selectedFiltersLength, setSelectedFiltersLength] = useState(0);
-  const [tableData, setTableData] = useState(data as any[]);
+
   const [selectedFilters, setSelectedFilters] = useState(
     calculatedInitialState.filters,
   );
-
-  const MTColumns = convertColumns(columns, theme);
 
   const [search, setSearch] = useState(calculatedInitialState.search);
 
@@ -314,25 +389,15 @@ export function Table<T extends object = {}>({
     }
   }, [search, filtersOpen, selectedFilters, onStateChange]);
 
-  const defaultOptions: Options<T> = {
-    headerStyle: {
-      textTransform: 'uppercase',
-    },
-  };
-
   const getFieldByTitle = useCallback(
     (titleValue: string | keyof T) =>
       columns.find(el => el.title === titleValue)?.field,
     [columns],
   );
 
-  useEffect(() => {
-    if (typeof data === 'function') {
-      return;
-    }
-    if (!selectedFilters) {
-      setTableData(data as any[]);
-      return;
+  const tableData = useMemo(() => {
+    if (typeof data === 'function' || !selectedFilters) {
+      return data;
     }
 
     const selectedFiltersArray = Object.values(selectedFilters);
@@ -340,7 +405,7 @@ export function Table<T extends object = {}>({
       const newData = (data as any[]).filter(
         el =>
           !!Object.entries(selectedFilters)
-            .filter(([, value]) => !!value.length)
+            .filter(([, value]) => !!(value as { length?: number }).length)
             .every(([key, filterValue]) => {
               const fieldValue = extractValueByField(
                 el,
@@ -358,79 +423,16 @@ export function Table<T extends object = {}>({
               return fieldValue === filterValue;
             }),
       );
-      setTableData(newData);
-    } else {
-      setTableData(data as any[]);
+      return newData;
     }
-    setSelectedFiltersLength(selectedFiltersArray.flat().length);
+    return data;
   }, [data, selectedFilters, getFieldByTitle]);
 
-  const constructFilters = (
-    filterConfig: TableFilter[],
-    dataValue: any[] | undefined,
-  ): Filter[] => {
-    const extractDistinctValues = (field: string | keyof T): Set<any> => {
-      const distinctValues = new Set<any>();
-      const addValue = (value: any) => {
-        if (value !== undefined && value !== null) {
-          distinctValues.add(value);
-        }
-      };
-
-      if (dataValue) {
-        dataValue.forEach(el => {
-          const value = extractValueByField(
-            el,
-            getFieldByTitle(field) as string,
-          );
-
-          if (Array.isArray(value)) {
-            (value as []).forEach(addValue);
-          } else {
-            addValue(value);
-          }
-        });
-      }
-
-      return distinctValues;
-    };
-
-    const constructCheckboxTree = (
-      filter: TableFilter,
-    ): Without<CheckboxTreeProps, 'onChange'> => ({
-      label: filter.column,
-      subCategories: [...extractDistinctValues(filter.column)].map(v => ({
-        label: v,
-        options: [],
-      })),
-    });
-
-    const constructSelect = (
-      filter: TableFilter,
-    ): Without<SelectProps, 'onChange'> => {
-      return {
-        placeholder: 'All results',
-        label: filter.column,
-        multiple: filter.type === 'multiple-select',
-        items: [...extractDistinctValues(filter.column)].sort().map(value => ({
-          label: value,
-          value,
-        })),
-      };
-    };
-
-    return filterConfig.map(filter => ({
-      type: filter.type,
-      element:
-        filter.type === 'checkbox-tree'
-          ? constructCheckboxTree(filter)
-          : constructSelect(filter),
-    }));
-  };
+  const selectedFiltersLength = Object.values(selectedFilters).flat().length;
 
   const hasFilters = !!filters?.length;
   const Toolbar = useCallback(
-    toolbarProps => {
+    (toolbarProps: any /* no type for this in material-table */) => {
       return (
         <TableToolbar
           setSearch={setSearch}
@@ -446,28 +448,16 @@ export function Table<T extends object = {}>({
 
   const hasNoRows = typeof data !== 'function' && data.length === 0;
   const columnCount = columns.length;
-  const Body = useCallback(
-    bodyProps => {
-      if (emptyContent && hasNoRows) {
-        return (
-          <tbody>
-            <tr>
-              <td colSpan={columnCount}>{emptyContent}</td>
-            </tr>
-          </tbody>
-        );
-      }
-
-      return <MTableBody {...bodyProps} />;
-    },
-    [hasNoRows, emptyContent, columnCount],
+  const Body = useMemo(
+    () => makeBody({ hasNoRows, emptyContent, columnCount, loading }),
+    [hasNoRows, emptyContent, columnCount, loading],
   );
 
   return (
-    <div className={tableClasses.root}>
+    <Box className={tableClasses.root}>
       {filtersOpen && data && typeof data !== 'function' && filters?.length && (
         <Filters
-          filters={constructFilters(filters, data as any[])}
+          filters={constructFilters(filters, data as any[], columns)}
           selectedFilters={selectedFilters}
           onChangeFilters={setSelectedFilters}
         />
@@ -475,15 +465,16 @@ export function Table<T extends object = {}>({
       <MTable<T>
         components={{
           Header: StyledMTableHeader,
-          Toolbar,
           Body,
+          Toolbar,
+          ...components,
         }}
-        options={{ ...defaultOptions, ...options }}
-        columns={MTColumns}
+        options={options}
+        columns={convertColumns(columns, theme)}
         icons={tableIcons}
         title={
           <>
-            <Typography variant="h5" component="h3">
+            <Typography variant="h5" component="h2">
               {title}
             </Typography>
             {subtitle && (
@@ -493,10 +484,97 @@ export function Table<T extends object = {}>({
             )}
           </>
         }
-        data={typeof data === 'function' ? data : tableData}
-        style={{ width: '100%' }}
-        {...propsWithoutData}
+        data={tableData}
+        style={{ width: '100%', ...style }}
+        localization={{
+          toolbar: { searchPlaceholder: 'Search', searchTooltip: 'Search' },
+          ...localization,
+        }}
+        {...restProps}
       />
-    </div>
+    </Box>
   );
+}
+
+Table.icons = Object.freeze(tableIcons);
+
+function makeBody({
+  columnCount,
+  emptyContent,
+  hasNoRows,
+  loading,
+}: {
+  hasNoRows: boolean;
+  emptyContent: ReactNode;
+  columnCount: number;
+  loading?: boolean;
+}) {
+  return (bodyProps: any /* no type for this in material-table */) => {
+    if (loading) {
+      return <TableLoadingBody colSpan={columnCount} />;
+    }
+
+    if (emptyContent && hasNoRows) {
+      return (
+        <tbody>
+          <tr>
+            <td colSpan={columnCount}>{emptyContent}</td>
+          </tr>
+        </tbody>
+      );
+    }
+
+    return <MTableBody {...bodyProps} />;
+  };
+}
+
+function constructFilters<T extends object>(
+  filterConfig: TableFilter[],
+  dataValue: any[] | undefined,
+  columns: TableColumn<T>[],
+): Filter[] {
+  const extractDistinctValues = (field: string | keyof T): Set<any> => {
+    const distinctValues = new Set<any>();
+    const addValue = (value: any) => {
+      if (value !== undefined && value !== null) {
+        distinctValues.add(value);
+      }
+    };
+
+    if (dataValue) {
+      dataValue.forEach(el => {
+        const value = extractValueByField(
+          el,
+          columns.find(c => c.title === field)?.field as string,
+        );
+
+        if (Array.isArray(value)) {
+          (value as []).forEach(addValue);
+        } else {
+          addValue(value);
+        }
+      });
+    }
+
+    return distinctValues;
+  };
+
+  const constructSelect = (
+    filter: TableFilter,
+  ): Without<SelectProps, 'onChange'> => {
+    return {
+      placeholder: 'All results',
+      label: filter.column,
+      multiple: filter.type === 'multiple-select',
+      items: [...extractDistinctValues(filter.column)].sort().map(value => ({
+        label: value,
+        value,
+      })),
+    };
+  };
+
+  return filterConfig.map(filter => ({
+    type: filter.type,
+    element: constructSelect(filter),
+  }));
 }

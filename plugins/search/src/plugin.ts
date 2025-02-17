@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import { SearchClient, searchApiRef } from './apis';
+import { SearchClient } from './apis';
+import { searchApiRef } from '@backstage/plugin-search-react';
 import {
   createApiFactory,
   createPlugin,
@@ -22,107 +23,70 @@ import {
   createRoutableExtension,
   discoveryApiRef,
   createComponentExtension,
-  identityApiRef,
+  fetchApiRef,
 } from '@backstage/core-plugin-api';
+import { SidebarSearchModalProps } from './components/SidebarSearchModal';
 
 export const rootRouteRef = createRouteRef({
-  path: '/search',
-  title: 'search',
+  id: 'search',
 });
 
-export const rootNextRouteRef = createRouteRef({
-  path: '/search-next',
-  title: 'search',
-});
-
+/**
+ * @public
+ */
 export const searchPlugin = createPlugin({
   id: 'search',
   apis: [
     createApiFactory({
       api: searchApiRef,
-      deps: { discoveryApi: discoveryApiRef, identityApi: identityApiRef },
-      factory: ({ discoveryApi, identityApi }) => {
-        return new SearchClient({ discoveryApi, identityApi });
+      deps: { discoveryApi: discoveryApiRef, fetchApi: fetchApiRef },
+      factory: ({ discoveryApi, fetchApi }) => {
+        return new SearchClient({ discoveryApi, fetchApi });
       },
     }),
   ],
   routes: {
     root: rootRouteRef,
-    nextRoot: rootNextRouteRef,
   },
 });
 
+/**
+ * @public
+ */
 export const SearchPage = searchPlugin.provide(
   createRoutableExtension({
+    name: 'SearchPage',
     component: () => import('./components/SearchPage').then(m => m.SearchPage),
     mountPoint: rootRouteRef,
   }),
 );
 
 /**
- * @deprecated This component was used for rapid prototyping of the Backstage
- * Search platform. Now that the API has stabilized, you should use the
- * <SearchPage /> component instead. This component will be removed in an
- * upcoming release.
+ * @public
  */
-export const SearchPageNext = searchPlugin.provide(
-  createRoutableExtension({
-    component: () => import('./components/SearchPage').then(m => m.SearchPage),
-    mountPoint: rootNextRouteRef,
-  }),
-);
-
-export const SearchBar = searchPlugin.provide(
+export const SidebarSearchModal = searchPlugin.provide<
+  (props: SidebarSearchModalProps) => JSX.Element | null
+>(
   createComponentExtension({
-    component: {
-      lazy: () => import('./components/SearchBar').then(m => m.SearchBar),
-    },
-  }),
-);
-
-/**
- * @deprecated This component was used for rapid prototyping of the Backstage
- * Search platform. Now that the API has stabilized, you should use the
- * <SearchBar /> component instead. This component will be removed in an
- * upcoming release.
- */
-export const SearchBarNext = searchPlugin.provide(
-  createComponentExtension({
-    component: {
-      lazy: () => import('./components/SearchBar').then(m => m.SearchBar),
-    },
-  }),
-);
-
-export const SearchResult = searchPlugin.provide(
-  createComponentExtension({
-    component: {
-      lazy: () => import('./components/SearchResult').then(m => m.SearchResult),
-    },
-  }),
-);
-
-/**
- * @deprecated This component was used for rapid prototyping of the Backstage
- * Search platform. Now that the API has stabilized, you should use the
- * <SearchResult /> component instead. This component will be removed in an
- * upcoming release.
- */
-export const SearchResultNext = searchPlugin.provide(
-  createComponentExtension({
-    component: {
-      lazy: () => import('./components/SearchResult').then(m => m.SearchResult),
-    },
-  }),
-);
-
-export const DefaultResultListItem = searchPlugin.provide(
-  createComponentExtension({
+    name: 'SidebarSearchModal',
     component: {
       lazy: () =>
-        import('./components/DefaultResultListItem').then(
-          m => m.DefaultResultListItem,
+        import('./components/SidebarSearchModal').then(
+          m => m.SidebarSearchModal,
         ),
+    },
+  }),
+);
+
+/**
+ * @public
+ */
+export const HomePageSearchBar = searchPlugin.provide(
+  createComponentExtension({
+    name: 'HomePageSearchBar',
+    component: {
+      lazy: () =>
+        import('./components/HomePageComponent').then(m => m.HomePageSearchBar),
     },
   }),
 );

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { Context, useContext } from 'react';
+import React from 'react';
 import {
   useApi,
   createApiRef,
@@ -25,9 +25,8 @@ import {
 import { ApiProvider } from './ApiProvider';
 import { ApiRegistry } from './ApiRegistry';
 import { render } from '@testing-library/react';
-import { withLogCollector } from '@backstage/test-utils-core';
-import { getGlobalSingleton } from '../../lib/globalObject';
-import { VersionedValue } from '../../lib/versionedValues';
+import { withLogCollector } from '@backstage/test-utils';
+import { useVersionedContext } from '@backstage/version-bridge';
 
 describe('ApiProvider', () => {
   type Api = () => string;
@@ -56,7 +55,7 @@ describe('ApiProvider', () => {
         <MyHocConsumer />
       </ApiProvider>,
     );
-    renderedHoc.getByText('hoc message: hello');
+    expect(renderedHoc.getByText('hoc message: hello')).toBeInTheDocument();
   });
 
   it('should provide nested access to apis', () => {
@@ -85,7 +84,7 @@ describe('ApiProvider', () => {
         </ApiProvider>
       </ApiProvider>,
     );
-    renderedHook.getByText('a=z b=y');
+    expect(renderedHook.getByText('a=z b=y')).toBeInTheDocument();
   });
 
   it('should ignore deps in prototype', () => {
@@ -108,7 +107,7 @@ describe('ApiProvider', () => {
         <MyWeirdHocConsumer />
       </ApiProvider>,
     );
-    renderedHoc.getByText('hoc message: hello');
+    expect(renderedHoc.getByText('hoc message: hello')).toBeInTheDocument();
   });
 
   it('should error if no provider is available', () => {
@@ -116,12 +115,17 @@ describe('ApiProvider', () => {
       withLogCollector(['error'], () => {
         expect(() => {
           render(<MyHookConsumer />);
-        }).toThrow(/^No provider available for api-context context/);
+        }).toThrow(/^API context is not available/);
       }).error,
     ).toEqual([
-      expect.stringMatching(
-        /^Error: Uncaught \[Error: No provider available for api-context context/,
-      ),
+      expect.objectContaining({
+        detail: new Error('API context is not available'),
+        type: 'unhandled exception',
+      }),
+      expect.objectContaining({
+        detail: new Error('API context is not available'),
+        type: 'unhandled exception',
+      }),
       expect.stringMatching(
         /^The above error occurred in the <MyHookConsumer> component/,
       ),
@@ -131,12 +135,17 @@ describe('ApiProvider', () => {
       withLogCollector(['error'], () => {
         expect(() => {
           render(<MyHocConsumer />);
-        }).toThrow(/^No provider available for api-context context/);
+        }).toThrow(/^API context is not available/);
       }).error,
     ).toEqual([
-      expect.stringMatching(
-        /^Error: Uncaught \[Error: No provider available for api-context context/,
-      ),
+      expect.objectContaining({
+        detail: new Error('API context is not available'),
+        type: 'unhandled exception',
+      }),
+      expect.objectContaining({
+        detail: new Error('API context is not available'),
+        type: 'unhandled exception',
+      }),
       expect.stringMatching(
         /^The above error occurred in the <withApis\(Component\)> component/,
       ),
@@ -155,9 +164,14 @@ describe('ApiProvider', () => {
         }).toThrow('No implementation available for apiRef{x}');
       }).error,
     ).toEqual([
-      expect.stringMatching(
-        /^Error: Uncaught \[Error: No implementation available for apiRef{x}\]/,
-      ),
+      expect.objectContaining({
+        detail: new Error('No implementation available for apiRef{x}'),
+        type: 'unhandled exception',
+      }),
+      expect.objectContaining({
+        detail: new Error('No implementation available for apiRef{x}'),
+        type: 'unhandled exception',
+      }),
       expect.stringMatching(
         /^The above error occurred in the <MyHookConsumer> component/,
       ),
@@ -174,9 +188,14 @@ describe('ApiProvider', () => {
         }).toThrow('No implementation available for apiRef{x}');
       }).error,
     ).toEqual([
-      expect.stringMatching(
-        /^Error: Uncaught \[Error: No implementation available for apiRef{x}\]/,
-      ),
+      expect.objectContaining({
+        detail: new Error('No implementation available for apiRef{x}'),
+        type: 'unhandled exception',
+      }),
+      expect.objectContaining({
+        detail: new Error('No implementation available for apiRef{x}'),
+        type: 'unhandled exception',
+      }),
       expect.stringMatching(
         /^The above error occurred in the <withApis\(Component\)> component/,
       ),
@@ -185,13 +204,10 @@ describe('ApiProvider', () => {
 });
 
 describe('v1 consumer', () => {
-  const ApiContext =
-    getGlobalSingleton<Context<VersionedValue<{ 1: ApiHolder }>>>(
-      'api-context',
-    );
-
   function useMockApiV1<T>(apiRef: ApiRef<T>): T {
-    const impl = useContext(ApiContext)?.atVersion(1)?.get(apiRef);
+    const impl = useVersionedContext<{ 1: ApiHolder }>('api-context')
+      ?.atVersion(1)
+      ?.get(apiRef);
     if (!impl) {
       throw new Error('no impl');
     }
@@ -213,6 +229,6 @@ describe('v1 consumer', () => {
         <MyHookConsumerV1 />
       </ApiProvider>,
     );
-    renderedHook.getByText('hook message: hello');
+    expect(renderedHook.getByText('hook message: hello')).toBeInTheDocument();
   });
 });

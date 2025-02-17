@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { assertError } from '@backstage/errors';
 import {
   spawn,
   execFile as execFileCb,
@@ -24,15 +25,12 @@ import { promisify } from 'util';
 
 const execFile = promisify(execFileCb);
 
-const EXPECTED_LOAD_ERRORS =
-  /ECONNREFUSED|ECONNRESET|did not get to load all resources/;
-
 export function spawnPiped(cmd: string[], options?: SpawnOptions) {
   function pipeWithPrefix(stream: NodeJS.WriteStream, prefix = '') {
     return (data: Buffer) => {
       const prefixedMsg = data
         .toString('utf8')
-        .trimRight()
+        .trimEnd()
         .replace(/^/gm, prefix);
       stream.write(`${prefixedMsg}\n`, 'utf8');
     };
@@ -66,11 +64,12 @@ export async function runPlain(cmd: string[], options?: SpawnOptions) {
     });
     return stdout.trim();
   } catch (error) {
+    assertError(error);
     if (error.stdout) {
-      process.stdout.write(error.stdout);
+      process.stdout.write(error.stdout as Buffer);
     }
     if (error.stderr) {
-      process.stderr.write(error.stderr);
+      process.stderr.write(error.stderr as Buffer);
     }
     throw error;
   }
@@ -90,7 +89,7 @@ export function exitWithError(err: Error & { code?: unknown }) {
  * Waits for fn() to be true
  * Checks every 100ms
  * .cancel() is available
- * @returns {Promise} Promise of resolution
+ * @returns Promise of resolution
  */
 export function waitFor(fn: () => boolean, maxSeconds: number = 120) {
   let count = 0;
@@ -123,56 +122,6 @@ export async function waitForExit(child: ChildProcess) {
       }
     }),
   );
-}
-
-export async function waitForPageWithText(
-  browser: any,
-  path: string,
-  text: string,
-  { intervalMs = 1000, maxLoadAttempts = 240, maxFindTextAttempts = 3 } = {},
-) {
-  let loadAttempts = 0;
-  for (;;) {
-    try {
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-      await browser.visit(path);
-      break;
-    } catch (error) {
-      if (error.message.match(EXPECTED_LOAD_ERRORS)) {
-        loadAttempts++;
-        if (loadAttempts >= maxLoadAttempts) {
-          throw new Error(
-            `Failed to load page '${path}', max number of attempts reached`,
-          );
-        }
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  // The page may not be fully loaded and hence we need to retry.
-  let findTextAttempts = 0;
-  const escapedText = text.replace(/"|\\/g, '\\$&');
-  for (;;) {
-    try {
-      browser.assert.evaluate(
-        `Array.from(document.querySelectorAll("*")).some(el => el.textContent === "${escapedText}")`,
-        true,
-        `expected to find text ${text}`,
-      );
-      break;
-    } catch (error) {
-      findTextAttempts++;
-      if (findTextAttempts <= maxFindTextAttempts) {
-        await browser.visit(path);
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-        continue;
-      } else {
-        throw error;
-      }
-    }
-  }
 }
 
 export function print(msg: string) {

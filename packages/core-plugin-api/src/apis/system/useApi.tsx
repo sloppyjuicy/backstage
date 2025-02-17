@@ -16,33 +16,54 @@
 
 import React, { PropsWithChildren } from 'react';
 import { ApiRef, ApiHolder, TypesToApiRefs } from './types';
-import { useVersionedContext } from '../../lib/versionedValues';
+import { useVersionedContext } from '@backstage/version-bridge';
+import { NotImplementedError } from '@backstage/errors';
 
+/**
+ * React hook for retrieving {@link ApiHolder}, an API catalog.
+ *
+ * @public
+ */
 export function useApiHolder(): ApiHolder {
   const versionedHolder = useVersionedContext<{ 1: ApiHolder }>('api-context');
+  if (!versionedHolder) {
+    throw new NotImplementedError('API context is not available');
+  }
 
   const apiHolder = versionedHolder.atVersion(1);
   if (!apiHolder) {
-    throw new Error('ApiContext v1 not available');
+    throw new NotImplementedError('ApiContext v1 not available');
   }
   return apiHolder;
 }
 
+/**
+ * React hook for retrieving APIs.
+ *
+ * @param apiRef - Reference of the API to use.
+ * @public
+ */
 export function useApi<T>(apiRef: ApiRef<T>): T {
   const apiHolder = useApiHolder();
 
   const api = apiHolder.get(apiRef);
   if (!api) {
-    throw new Error(`No implementation available for ${apiRef}`);
+    throw new NotImplementedError(`No implementation available for ${apiRef}`);
   }
   return api;
 }
 
-export function withApis<T>(apis: TypesToApiRefs<T>) {
-  return function withApisWrapper<P extends T>(
-    WrappedComponent: React.ComponentType<P>,
+/**
+ * Wrapper for giving component an API context.
+ *
+ * @param apis - APIs for the context.
+ * @public
+ */
+export function withApis<T extends {}>(apis: TypesToApiRefs<T>) {
+  return function withApisWrapper<TProps extends T>(
+    WrappedComponent: React.ComponentType<TProps>,
   ) {
-    const Hoc = (props: PropsWithChildren<Omit<P, keyof T>>) => {
+    const Hoc = (props: PropsWithChildren<Omit<TProps, keyof T>>) => {
       const apiHolder = useApiHolder();
 
       const impls = {} as T;
@@ -53,13 +74,15 @@ export function withApis<T>(apis: TypesToApiRefs<T>) {
 
           const api = apiHolder.get(ref);
           if (!api) {
-            throw new Error(`No implementation available for ${ref}`);
+            throw new NotImplementedError(
+              `No implementation available for ${ref}`,
+            );
           }
           impls[key] = api;
         }
       }
 
-      return <WrappedComponent {...(props as P)} {...impls} />;
+      return <WrappedComponent {...(props as TProps)} {...impls} />;
     };
     const displayName =
       WrappedComponent.displayName || WrappedComponent.name || 'Component';

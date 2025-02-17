@@ -14,7 +14,26 @@
  * limitations under the License.
  */
 
-export { readEnvConfig, loadConfigSchema, mergeConfigSchemas } from './lib';
-export type { ConfigSchema, ConfigVisibility } from './lib';
+/**
+ * Config loading functionality used by Backstage backend, and CLI
+ *
+ * @packageDocumentation
+ */
+
+export { loadConfigSchema, mergeConfigSchemas } from './schema';
+export type {
+  ConfigSchema,
+  ConfigSchemaProcessingOptions,
+  ConfigVisibility,
+  LoadConfigSchemaOptions,
+  TransformFunc,
+} from './schema';
 export { loadConfig } from './loader';
-export type { LoadConfigOptions } from './loader';
+export type {
+  ConfigTarget,
+  LoadConfigOptions,
+  LoadConfigOptionsWatch,
+  LoadConfigOptionsRemote,
+  LoadConfigResult,
+} from './loader';
+export * from './sources';

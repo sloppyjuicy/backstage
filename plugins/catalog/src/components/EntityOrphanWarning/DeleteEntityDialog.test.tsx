@@ -13,17 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { DeleteEntityDialog } from './DeleteEntityDialog';
-import { ORIGIN_LOCATION_ANNOTATION } from '@backstage/catalog-model';
-import { CatalogApi } from '@backstage/catalog-client';
+import { ANNOTATION_ORIGIN_LOCATION } from '@backstage/catalog-model';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import { screen, waitFor } from '@testing-library/react';
-import { renderInTestApp } from '@backstage/test-utils';
-
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
 import { AlertApi, alertApiRef } from '@backstage/core-plugin-api';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
 
 describe('DeleteEntityDialog', () => {
   const alertApi: jest.Mocked<AlertApi> = {
@@ -31,13 +30,7 @@ describe('DeleteEntityDialog', () => {
     alert$: jest.fn(),
   };
 
-  const catalogClient: jest.Mocked<CatalogApi> = {
-    removeEntityByUid: jest.fn(),
-  } as any;
-  const apis = ApiRegistry.with(catalogApiRef, catalogClient).with(
-    alertApiRef,
-    alertApi,
-  );
+  const catalogClient = catalogApiMock.mock();
 
   const entity = {
     apiVersion: 'backstage.io/v1alpha1',
@@ -47,14 +40,21 @@ describe('DeleteEntityDialog', () => {
       name: 'n',
       namespace: 'ns',
       annotations: {
-        [ORIGIN_LOCATION_ANNOTATION]: 'url:http://example.com',
+        [ANNOTATION_ORIGIN_LOCATION]: 'url:http://example.com',
       },
     },
     spec: {},
   };
 
   const Wrapper = ({ children }: { children?: React.ReactNode }) => (
-    <ApiProvider apis={apis}>{children}</ApiProvider>
+    <TestApiProvider
+      apis={[
+        [catalogApiRef, catalogClient],
+        [alertApiRef, alertApi],
+      ]}
+    >
+      {children}
+    </TestApiProvider>
   );
 
   afterEach(() => {
@@ -75,10 +75,10 @@ describe('DeleteEntityDialog', () => {
       </Wrapper>,
     );
 
-    userEvent.click(screen.getByText('Cancel'));
+    await userEvent.click(screen.getByText('Cancel'));
 
     await waitFor(() => {
-      expect(onClose).toBeCalled();
+      expect(onClose).toHaveBeenCalled();
     });
   });
 
@@ -96,11 +96,11 @@ describe('DeleteEntityDialog', () => {
       </Wrapper>,
     );
 
-    userEvent.click(screen.getByText('Delete'));
+    await userEvent.click(screen.getByText('Delete'));
 
     await waitFor(() => {
-      expect(catalogClient.removeEntityByUid).toBeCalledWith('123');
-      expect(onConfirm).toBeCalled();
+      expect(catalogClient.removeEntityByUid).toHaveBeenCalledWith('123');
+      expect(onConfirm).toHaveBeenCalled();
     });
   });
 
@@ -119,11 +119,11 @@ describe('DeleteEntityDialog', () => {
     );
 
     catalogClient.removeEntityByUid.mockRejectedValue(new Error('no no no'));
-    userEvent.click(screen.getByText('Delete'));
+    await userEvent.click(screen.getByText('Delete'));
 
     await waitFor(() => {
-      expect(catalogClient.removeEntityByUid).toBeCalledWith('123');
-      expect(alertApi.post).toBeCalledWith({ message: 'no no no' });
+      expect(catalogClient.removeEntityByUid).toHaveBeenCalledWith('123');
+      expect(alertApi.post).toHaveBeenCalledWith({ message: 'no no no' });
     });
   });
 });

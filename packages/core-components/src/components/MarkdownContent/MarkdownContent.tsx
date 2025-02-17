@@ -14,76 +14,125 @@
  * limitations under the License.
  */
 
-import { makeStyles } from '@material-ui/core';
-import ReactMarkdown from 'react-markdown';
+import { makeStyles } from '@material-ui/core/styles';
+import ReactMarkdown, { Options } from 'react-markdown';
 import gfm from 'remark-gfm';
 import React from 'react';
-import { BackstageTheme } from '@backstage/theme';
 import { CodeSnippet } from '../CodeSnippet';
+import { HeadingProps } from 'react-markdown/lib/ast-to-react';
 
-const useStyles = makeStyles<BackstageTheme>(theme => ({
-  markdown: {
-    '& table': {
-      borderCollapse: 'collapse',
-      border: `1px solid ${theme.palette.border}`,
-    },
-    '& th, & td': {
-      border: `1px solid ${theme.palette.border}`,
-      padding: theme.spacing(1),
-    },
-    '& td': {
-      wordBreak: 'break-word',
-      overflow: 'hidden',
-      verticalAlign: 'middle',
-      lineHeight: '1',
-      margin: 0,
-      padding: theme.spacing(3, 2, 3, 2.5),
-      borderBottom: 0,
-    },
-    '& th': {
-      backgroundColor: theme.palette.background.paper,
-    },
-    '& tr': {
-      backgroundColor: theme.palette.background.paper,
-    },
-    '& tr:nth-child(odd)': {
-      backgroundColor: theme.palette.background.default,
-    },
+export type MarkdownContentClassKey = 'markdown';
 
-    '& a': {
-      color: theme.palette.link,
+const useStyles = makeStyles(
+  theme => ({
+    markdown: {
+      '& table': {
+        borderCollapse: 'collapse',
+        border: `1px solid ${theme.palette.border}`,
+      },
+      '& th, & td': {
+        border: `1px solid ${theme.palette.border}`,
+        padding: theme.spacing(1),
+      },
+      '& td': {
+        wordBreak: 'break-word',
+        overflow: 'hidden',
+        verticalAlign: 'middle',
+        lineHeight: '1',
+        margin: 0,
+        padding: theme.spacing(3, 2, 3, 2.5),
+        borderBottom: 0,
+      },
+      '& th': {
+        backgroundColor: theme.palette.background.paper,
+      },
+      '& tr': {
+        backgroundColor: theme.palette.background.paper,
+      },
+      '& tr:nth-child(odd)': {
+        backgroundColor: theme.palette.background.default,
+      },
+
+      '& a': {
+        color: theme.palette.link,
+      },
+      '& img': {
+        maxWidth: '100%',
+      },
     },
-    '& img': {
-      maxWidth: '100%',
-    },
-  },
-}));
+  }),
+  { name: 'BackstageMarkdownContent' },
+);
 
 type Props = {
   content: string;
   dialect?: 'gfm' | 'common-mark';
+  linkTarget?: Options['linkTarget'];
+  transformLinkUri?: (href: string) => string;
+  transformImageUri?: (href: string) => string;
+  className?: string;
 };
 
-const renderers = {
-  code: ({ language, value }: { language: string; value?: string }) => {
-    return <CodeSnippet language={language} text={value ?? ''} />;
+const flatten = (text: string, child: any): string => {
+  if (!child) return text;
+
+  return typeof child === 'string'
+    ? text + child
+    : React.Children.toArray(child.props.children).reduce(flatten, text);
+};
+
+const headingRenderer = ({ level, children }: HeadingProps) => {
+  const childrenArray = React.Children.toArray(children);
+  const text = childrenArray.reduce(flatten, '');
+  const slug = text.toLocaleLowerCase('en-US').replace(/\W/g, '-');
+  return React.createElement(`h${level}`, { id: slug }, children);
+};
+
+const components: Options['components'] = {
+  code: ({ inline, className, children, ...props }) => {
+    const text = String(children).replace(/\n+$/, '');
+    const match = /language-(\w+)/.exec(className || '');
+    return !inline && match ? (
+      <CodeSnippet language={match[1]} text={text} />
+    ) : (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
   },
+  h1: headingRenderer,
+  h2: headingRenderer,
+  h3: headingRenderer,
+  h4: headingRenderer,
+  h5: headingRenderer,
+  h6: headingRenderer,
 };
 
 /**
- * MarkdownContent
- * --
- * Renders markdown with the default dialect [gfm - GitHub flavored Markdown](https://github.github.com/gfm/) to backstage theme styled HTML.
- * If you just want to render to plain [CommonMark](https://commonmark.org/), set the dialect to `'common-mark'`
+ * Renders markdown with the default dialect {@link https://github.github.com/gfm/ | gfm - GitHub flavored Markdown} to backstage theme styled HTML.
+ *
+ * @remarks
+ * If you just want to render to plain {@link https://commonmark.org/ | CommonMark}, set the dialect to `'common-mark'`
  */
-export const MarkdownContent = ({ content, dialect = 'gfm' }: Props) => {
+export function MarkdownContent(props: Props) {
+  const {
+    content,
+    dialect = 'gfm',
+    linkTarget,
+    transformLinkUri,
+    transformImageUri,
+    className,
+  } = props;
   const classes = useStyles();
   return (
     <ReactMarkdown
-      plugins={dialect === 'gfm' ? [gfm] : []}
-      className={classes.markdown}
+      remarkPlugins={dialect === 'gfm' ? [gfm] : []}
+      className={`${classes.markdown} ${className ?? ''}`.trim()}
       children={content}
-      renderers={renderers}
+      components={components}
+      linkTarget={linkTarget}
+      transformLinkUri={transformLinkUri}
+      transformImageUri={transformImageUri}
     />
   );
-};
+}

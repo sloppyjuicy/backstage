@@ -14,85 +14,37 @@
  * limitations under the License.
  */
 
-import { Entity } from '@backstage/catalog-model';
-import {
-  Box,
-  Checkbox,
-  FormControlLabel,
-  TextField,
-  Typography,
-} from '@material-ui/core';
-import CheckBoxIcon from '@material-ui/icons/CheckBox';
-import CheckBoxOutlineBlankIcon from '@material-ui/icons/CheckBoxOutlineBlank';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import { Autocomplete } from '@material-ui/lab';
-import React, { useEffect, useMemo, useState } from 'react';
-import { useEntityListProvider } from '../../hooks/useEntityListProvider';
+import { makeStyles } from '@material-ui/core/styles';
+import React from 'react';
 import { EntityLifecycleFilter } from '../../filters';
+import { EntityAutocompletePicker } from '../EntityAutocompletePicker';
+import { catalogReactTranslationRef } from '../../translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
-const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
-const checkedIcon = <CheckBoxIcon fontSize="small" />;
+/** @public */
+export type CatalogReactEntityLifecyclePickerClassKey = 'input';
 
-export const EntityLifecyclePicker = () => {
-  const { updateFilters, backendEntities, filters, queryParameters } =
-    useEntityListProvider();
+const useStyles = makeStyles(
+  {
+    input: {},
+  },
+  { name: 'CatalogReactEntityLifecyclePicker' },
+);
 
-  const queryParamLifecycles = [queryParameters.lifecycles]
-    .flat()
-    .filter(Boolean) as string[];
-  const [selectedLifecycles, setSelectedLifecycles] = useState(
-    queryParamLifecycles.length
-      ? queryParamLifecycles
-      : filters.lifecycles?.values ?? [],
-  );
-
-  useEffect(() => {
-    updateFilters({
-      lifecycles: selectedLifecycles.length
-        ? new EntityLifecycleFilter(selectedLifecycles)
-        : undefined,
-    });
-  }, [selectedLifecycles, updateFilters]);
-
-  const availableLifecycles = useMemo(
-    () =>
-      [
-        ...new Set(
-          backendEntities
-            .map((e: Entity) => e.spec?.lifecycle)
-            .filter(Boolean) as string[],
-        ),
-      ].sort(),
-    [backendEntities],
-  );
-
-  if (!availableLifecycles.length) return null;
+/** @public */
+export const EntityLifecyclePicker = (props: { initialFilter?: string[] }) => {
+  const { initialFilter = [] } = props;
+  const classes = useStyles();
+  const { t } = useTranslationRef(catalogReactTranslationRef);
 
   return (
-    <Box pb={1} pt={1}>
-      <Typography variant="button">Lifecycle</Typography>
-      <Autocomplete<string>
-        aria-label="Lifecycle"
-        multiple
-        options={availableLifecycles}
-        value={selectedLifecycles}
-        onChange={(_: object, value: string[]) => setSelectedLifecycles(value)}
-        renderOption={(option, { selected }) => (
-          <FormControlLabel
-            control={
-              <Checkbox
-                icon={icon}
-                checkedIcon={checkedIcon}
-                checked={selected}
-              />
-            }
-            label={option}
-          />
-        )}
-        size="small"
-        popupIcon={<ExpandMoreIcon data-testid="lifecycle-picker-expand" />}
-        renderInput={params => <TextField {...params} variant="outlined" />}
-      />
-    </Box>
+    <EntityAutocompletePicker
+      label={t('entityLifecyclePicker.title')}
+      name="lifecycles"
+      path="spec.lifecycle"
+      Filter={EntityLifecycleFilter}
+      InputProps={{ className: classes.input }}
+      initialSelectedOptions={initialFilter}
+    />
   );
 };

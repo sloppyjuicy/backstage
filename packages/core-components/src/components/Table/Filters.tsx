@@ -14,49 +14,54 @@
  * limitations under the License.
  */
 
+import Box from '@material-ui/core/Box';
+import Button from '@material-ui/core/Button';
+import { makeStyles } from '@material-ui/core/styles';
 import React, { useEffect, useState } from 'react';
-import { BackstageTheme } from '@backstage/theme';
-import { Button, makeStyles } from '@material-ui/core';
-import { Select } from '../Select';
-import { CheckboxTree } from '../CheckboxTree';
-import { CheckboxTreeProps } from '../CheckboxTree/CheckboxTree';
-import { SelectProps } from '../Select/Select';
 
-const useSubvalueCellStyles = makeStyles<BackstageTheme>(theme => ({
-  root: {
-    height: '100%',
-    width: '315px',
-    display: 'flex',
-    flexDirection: 'column',
-    marginRight: theme.spacing(3),
-  },
-  value: {
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    height: '60px',
-    justifyContent: 'space-between',
-    borderBottom: `1px solid ${theme.palette.grey[500]}`,
-  },
-  filters: {
-    display: 'flex',
-    flexDirection: 'column',
-    '& > *': {
-      marginTop: theme.spacing(2),
+import { Select } from '../Select';
+import { SelectProps } from '../Select/Select';
+import { coreComponentsTranslationRef } from '../../translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+
+export type TableFiltersClassKey = 'root' | 'value' | 'heder' | 'filters';
+
+const useFilterStyles = makeStyles(
+  theme => ({
+    root: {
+      height: '100%',
+      width: '315px',
+      display: 'flex',
+      flexDirection: 'column',
+      marginRight: theme.spacing(3),
     },
-  },
-}));
+    value: {
+      fontWeight: 'bold',
+      fontSize: 18,
+    },
+    header: {
+      display: 'flex',
+      alignItems: 'center',
+      height: theme.spacing(7.5),
+      justifyContent: 'space-between',
+      borderBottom: `1px solid ${theme.palette.grey[500]}`,
+    },
+    filters: {
+      display: 'flex',
+      flexDirection: 'column',
+      '& > *': {
+        marginTop: theme.spacing(2),
+      },
+    },
+  }),
+  { name: 'BackstageTableFilters' },
+);
 
 export type Without<T, K> = Pick<T, Exclude<keyof T, K>>;
 
 export type Filter = {
-  type: 'select' | 'checkbox-tree' | 'multiple-select';
-  element:
-    | Without<CheckboxTreeProps, 'onChange'>
-    | Without<SelectProps, 'onChange'>;
+  type: 'select' | 'multiple-select';
+  element: Without<SelectProps, 'onChange'>;
 };
 
 export type SelectedFilters = {
@@ -70,9 +75,10 @@ type Props = {
 };
 
 export const Filters = (props: Props) => {
-  const classes = useSubvalueCellStyles();
+  const classes = useFilterStyles();
 
   const { onChangeFilters } = props;
+  const { t } = useTranslationRef(coreComponentsTranslationRef);
 
   const [selectedFilters, setSelectedFilters] = useState<SelectedFilters>({
     ...props.selectedFilters,
@@ -91,67 +97,30 @@ export const Filters = (props: Props) => {
 
   // As material table doesn't provide a way to add a column filter tab we will make our own filter logic
   return (
-    <div className={classes.root}>
-      <div className={classes.header}>
-        <div className={classes.value}>Filters</div>
+    <Box className={classes.root}>
+      <Box className={classes.header}>
+        <Box className={classes.value}>{t('table.filter.title')}</Box>
         <Button color="primary" onClick={handleClick}>
-          Clear all
+          {t('table.filter.clearAll')}
         </Button>
-      </div>
-      <div className={classes.filters}>
+      </Box>
+      <Box className={classes.filters}>
         {props.filters?.length &&
-          props.filters.map(filter =>
-            filter.type === 'checkbox-tree' ? (
-              <CheckboxTree
-                triggerReset={reset}
-                key={filter.element.label}
-                {...(filter.element as CheckboxTreeProps)}
-                selected={
-                  selectedFilters[filter.element.label]
-                    ? (selectedFilters[filter.element.label] as string[]).map(
-                        s => ({
-                          category: s,
-                        }),
-                      )
-                    : undefined
-                }
-                onChange={el =>
-                  setSelectedFilters({
-                    ...selectedFilters,
-                    [filter.element.label]: el
-                      .filter(
-                        (checkboxFilter: any) =>
-                          checkboxFilter.category ||
-                          checkboxFilter.selectedChildren.length,
-                      )
-                      .map((checkboxFilter: any) =>
-                        checkboxFilter.category
-                          ? [
-                              ...checkboxFilter.selectedChildren,
-                              checkboxFilter.category,
-                            ]
-                          : checkboxFilter.selectedChildren,
-                      )
-                      .flat(),
-                  })
-                }
-              />
-            ) : (
-              <Select
-                triggerReset={reset}
-                key={filter.element.label}
-                {...(filter.element as SelectProps)}
-                selected={selectedFilters[filter.element.label]}
-                onChange={el =>
-                  setSelectedFilters({
-                    ...selectedFilters,
-                    [filter.element.label]: el as any,
-                  })
-                }
-              />
-            ),
-          )}
-      </div>
-    </div>
+          props.filters.map(filter => (
+            <Select
+              triggerReset={reset}
+              key={filter.element.label}
+              {...(filter.element as SelectProps)}
+              selected={selectedFilters[filter.element.label]}
+              onChange={el =>
+                setSelectedFilters({
+                  ...selectedFilters,
+                  [filter.element.label]: el as any,
+                })
+              }
+            />
+          ))}
+      </Box>
+    </Box>
   );
 };

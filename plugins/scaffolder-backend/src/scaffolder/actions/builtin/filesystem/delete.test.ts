@@ -14,35 +14,29 @@
  * limitations under the License.
  */
 
-import * as os from 'os';
-import mockFs from 'mock-fs';
 import { resolve as resolvePath } from 'path';
 import { createFilesystemDeleteAction } from './delete';
-import { getVoidLogger } from '@backstage/backend-common';
-import { PassThrough } from 'stream';
+import { createMockActionContext } from '@backstage/plugin-scaffolder-node-test-utils';
 import fs from 'fs-extra';
-
-const root = os.platform() === 'win32' ? 'C:\\rootDir' : '/rootDir';
-const workspacePath = resolvePath(root, 'my-workspace');
+import { createMockDirectory } from '@backstage/backend-test-utils';
 
 describe('fs:delete', () => {
   const action = createFilesystemDeleteAction();
 
-  const mockContext = {
+  const mockDir = createMockDirectory();
+  const workspacePath = resolvePath(mockDir.path, 'workspace');
+
+  const mockContext = createMockActionContext({
     input: {
       files: ['unit-test-a.js', 'unit-test-b.js'],
     },
     workspacePath,
-    logger: getVoidLogger(),
-    logStream: new PassThrough(),
-    output: jest.fn(),
-    createTemporaryDirectory: jest.fn(),
-  };
+  });
 
   beforeEach(() => {
     jest.restoreAllMocks();
 
-    mockFs({
+    mockDir.setContent({
       [workspacePath]: {
         'unit-test-a.js': 'hello',
         'unit-test-b.js': 'world',
@@ -53,36 +47,32 @@ describe('fs:delete', () => {
     });
   });
 
-  afterEach(() => {
-    mockFs.restore();
-  });
-
   it('should throw an error when files is not an array', async () => {
     await expect(
       action.handler({
         ...mockContext,
-        input: { files: undefined },
+        input: { files: undefined } as any,
       }),
     ).rejects.toThrow(/files must be an Array/);
 
     await expect(
       action.handler({
         ...mockContext,
-        input: { files: {} },
+        input: { files: {} } as any,
       }),
     ).rejects.toThrow(/files must be an Array/);
 
     await expect(
       action.handler({
         ...mockContext,
-        input: { files: '' },
+        input: { files: '' } as any,
       }),
     ).rejects.toThrow(/files must be an Array/);
 
     await expect(
       action.handler({
         ...mockContext,
-        input: { files: null },
+        input: { files: null } as any,
       }),
     ).rejects.toThrow(/files must be an Array/);
   });
@@ -105,6 +95,15 @@ describe('fs:delete', () => {
     ).rejects.toThrow(
       /Relative path is not allowed to refer to a directory outside its parent/,
     );
+
+    await expect(
+      action.handler({
+        ...mockContext,
+        input: { files: ['../../../**/index.js'] },
+      }),
+    ).rejects.toThrow(
+      /Relative path is not allowed to refer to a directory outside its parent/,
+    );
   });
 
   it('should call fs.rm with the correct values', async () => {
@@ -117,6 +116,27 @@ describe('fs:delete', () => {
     });
 
     await action.handler(mockContext);
+
+    files.forEach(file => {
+      const filePath = resolvePath(workspacePath, file);
+      const fileExists = fs.existsSync(filePath);
+      expect(fileExists).toBe(false);
+    });
+  });
+
+  it('should handle wildcards', async () => {
+    const files = ['unit-test-a.js', 'unit-test-b.js'];
+
+    files.forEach(file => {
+      const filePath = resolvePath(workspacePath, file);
+      const fileExists = fs.existsSync(filePath);
+      expect(fileExists).toBe(true);
+    });
+
+    await action.handler({
+      ...mockContext,
+      input: { files: ['unit-*.js'] },
+    });
 
     files.forEach(file => {
       const filePath = resolvePath(workspacePath, file);

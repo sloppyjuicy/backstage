@@ -16,15 +16,15 @@
 
 import {
   catalogApiRef,
-  CatalogApi,
   EntityProvider,
   entityRouteRef,
 } from '@backstage/plugin-catalog-react';
 import { Entity, RELATION_PART_OF } from '@backstage/catalog-model';
-import { renderInTestApp } from '@backstage/test-utils';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
+import { screen } from '@testing-library/react';
 import React from 'react';
 import { SystemDiagramCard } from './SystemDiagramCard';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
 
 describe('<SystemDiagramCard />', () => {
   beforeAll(() => {
@@ -37,12 +37,7 @@ describe('<SystemDiagramCard />', () => {
   afterEach(() => jest.resetAllMocks());
 
   it('shows empty list if no relations', async () => {
-    const catalogApi: Partial<CatalogApi> = {
-      getEntities: () =>
-        Promise.resolve({
-          items: [] as Entity[],
-        }),
-    };
+    const catalogApi = catalogApiMock();
 
     const entity: Entity = {
       apiVersion: 'v1',
@@ -54,12 +49,12 @@ describe('<SystemDiagramCard />', () => {
       relations: [],
     };
 
-    const { queryByText } = await renderInTestApp(
-      <ApiProvider apis={ApiRegistry.from([[catalogApiRef, catalogApi]])}>
+    await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
         <EntityProvider entity={entity}>
           <SystemDiagramCard />
         </EntityProvider>
-      </ApiProvider>,
+      </TestApiProvider>,
       {
         mountedRoutes: {
           '/catalog/:namespace/:kind/:name': entityRouteRef,
@@ -67,32 +62,31 @@ describe('<SystemDiagramCard />', () => {
       },
     );
 
-    expect(queryByText(/System Diagram/)).toBeInTheDocument();
-    expect(queryByText(/namespace2\/system2/)).toBeInTheDocument();
-    expect(queryByText(/namespace\/entity/)).not.toBeInTheDocument();
+    expect(screen.getByText(/System Diagram/)).toBeInTheDocument();
+    expect(screen.getByText(/namespace2\/system2/)).toBeInTheDocument();
+    expect(screen.queryByText(/namespace\/entity/)).not.toBeInTheDocument();
   });
 
   it('shows related systems', async () => {
-    const catalogApi: Partial<CatalogApi> = {
-      getEntities: () =>
-        Promise.resolve({
-          items: [
-            {
-              apiVersion: 'backstage.io/v1alpha1',
-              kind: 'Component',
-              metadata: {
-                name: 'entity',
-                namespace: 'namespace',
-              },
-              spec: {
-                owner: 'not-tools@example.com',
-                type: 'service',
-                system: 'system',
-              },
+    const catalogApi = catalogApiMock.mock({
+      getEntities: async () => ({
+        items: [
+          {
+            apiVersion: 'backstage.io/v1alpha1',
+            kind: 'Component',
+            metadata: {
+              name: 'entity',
+              namespace: 'namespace',
             },
-          ] as Entity[],
-        }),
-    };
+            spec: {
+              owner: 'not-tools@example.com',
+              type: 'service',
+              system: 'system',
+            },
+          },
+        ],
+      }),
+    });
 
     const entity: Entity = {
       apiVersion: 'v1',
@@ -103,22 +97,18 @@ describe('<SystemDiagramCard />', () => {
       },
       relations: [
         {
-          target: {
-            kind: 'Domain',
-            namespace: 'namespace',
-            name: 'domain',
-          },
+          targetRef: 'domain:namespace/domain',
           type: RELATION_PART_OF,
         },
       ],
     };
 
-    const { getByText } = await renderInTestApp(
-      <ApiProvider apis={ApiRegistry.from([[catalogApiRef, catalogApi]])}>
+    await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
         <EntityProvider entity={entity}>
           <SystemDiagramCard />
         </EntityProvider>
-      </ApiProvider>,
+      </TestApiProvider>,
       {
         mountedRoutes: {
           '/catalog/:namespace/:kind/:name': entityRouteRef,
@@ -126,32 +116,31 @@ describe('<SystemDiagramCard />', () => {
       },
     );
 
-    expect(getByText('System Diagram')).toBeInTheDocument();
-    expect(getByText('namespace/system')).toBeInTheDocument();
-    expect(getByText('namespace/entity')).toBeInTheDocument();
+    expect(screen.getByText('System Diagram')).toBeInTheDocument();
+    expect(screen.getByText('namespace/system')).toBeInTheDocument();
+    expect(screen.getByText('namespace/entity')).toBeInTheDocument();
   });
 
   it('should truncate long domains, systems or entities', async () => {
-    const catalogApi: Partial<CatalogApi> = {
-      getEntities: () =>
-        Promise.resolve({
-          items: [
-            {
-              apiVersion: 'backstage.io/v1alpha1',
-              kind: 'Component',
-              metadata: {
-                name: 'alongentitythatshouldgettruncated',
-                namespace: 'namespace',
-              },
-              spec: {
-                owner: 'not-tools@example.com',
-                type: 'service',
-                system: 'system',
-              },
+    const catalogApi = catalogApiMock.mock({
+      getEntities: async () => ({
+        items: [
+          {
+            apiVersion: 'backstage.io/v1alpha1',
+            kind: 'Component',
+            metadata: {
+              name: 'alongentitythatshouldgettruncated',
+              namespace: 'namespace',
             },
-          ] as Entity[],
-        }),
-    };
+            spec: {
+              owner: 'not-tools@example.com',
+              type: 'service',
+              system: 'system',
+            },
+          },
+        ] as Entity[],
+      }),
+    });
 
     const entity: Entity = {
       apiVersion: 'v1',
@@ -162,22 +151,18 @@ describe('<SystemDiagramCard />', () => {
       },
       relations: [
         {
-          target: {
-            kind: 'Domain',
-            namespace: 'namespace',
-            name: 'alongdomainthatshouldgettruncated',
-          },
+          targetRef: 'domain:namespace/alongdomainthatshouldgettruncated',
           type: RELATION_PART_OF,
         },
       ],
     };
 
-    const { getByText } = await renderInTestApp(
-      <ApiProvider apis={ApiRegistry.from([[catalogApiRef, catalogApi]])}>
+    await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
         <EntityProvider entity={entity}>
           <SystemDiagramCard />
         </EntityProvider>
-      </ApiProvider>,
+      </TestApiProvider>,
       {
         mountedRoutes: {
           '/catalog/:namespace/:kind/:name': entityRouteRef,
@@ -185,8 +170,8 @@ describe('<SystemDiagramCard />', () => {
       },
     );
 
-    expect(getByText('namespace/alongdomai...')).toBeInTheDocument();
-    expect(getByText('namespace/alongsyste...')).toBeInTheDocument();
-    expect(getByText('namespace/alongentit...')).toBeInTheDocument();
+    expect(screen.getByText('namespace/alongdomai...')).toBeInTheDocument();
+    expect(screen.getByText('namespace/alongsyste...')).toBeInTheDocument();
+    expect(screen.getByText('namespace/alongentit...')).toBeInTheDocument();
   });
 });

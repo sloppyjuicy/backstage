@@ -15,14 +15,13 @@
  */
 
 export { createPlugin } from './Plugin';
+
 export type {
+  AnyExternalRoutes,
+  AnyRoutes,
   BackstagePlugin,
   Extension,
-  FeatureFlagOutput,
   FeatureFlagsHooks,
   PluginConfig,
-  PluginHooks,
-  PluginOutput,
-  RouteOptions,
-  RoutePath,
+  PluginFeatureFlagConfig,
 } from './types';

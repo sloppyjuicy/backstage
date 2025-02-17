@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import { LocationSpec, Entity } from '@backstage/catalog-model';
-import { CatalogRulesEnforcer } from './CatalogRules';
+import { Entity } from '@backstage/catalog-model';
 import { ConfigReader } from '@backstage/config';
+import { DefaultCatalogRulesEnforcer } from './CatalogRules';
+import { LocationSpec } from '@backstage/plugin-catalog-common';
 
 const entity = {
   user: {
@@ -34,12 +35,20 @@ const entity = {
 };
 
 const location: Record<string, LocationSpec> = {
+  v: {
+    type: 'url',
+    target: 'https://github.com/b/c/blob/master/.folder/v.yaml',
+  },
+  w: {
+    type: 'url',
+    target: 'https://github.com/b/c/blob/master/w.yaml',
+  },
   x: {
-    type: 'github',
+    type: 'url',
     target: 'https://github.com/a/b/blob/master/x.yaml',
   },
   y: {
-    type: 'github',
+    type: 'url',
     target: 'https://github.com/a/b/blob/master/y.yaml',
   },
   z: {
@@ -48,9 +57,31 @@ const location: Record<string, LocationSpec> = {
   },
 };
 
-describe('CatalogRulesEnforcer', () => {
+describe('DefaultCatalogRulesEnforcer', () => {
+  it('should throw an error if both pattern and exact are used', () => {
+    expect(() =>
+      DefaultCatalogRulesEnforcer.fromConfig(
+        new ConfigReader({
+          catalog: {
+            rules: [
+              {
+                allow: ['Component'],
+                locations: [
+                  {
+                    type: 'url',
+                    pattern: 'https://github.com/b/**',
+                    exact: 'https://github.com/a/b/blob/master/w.yaml',
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      ),
+    ).toThrow(/cannot have both exact and pattern values/i);
+  });
   it('should deny by default', () => {
-    const enforcer = new CatalogRulesEnforcer([]);
+    const enforcer = new DefaultCatalogRulesEnforcer([]);
     expect(enforcer.isAllowed(entity.user, location.x)).toBe(false);
     expect(enforcer.isAllowed(entity.group, location.y)).toBe(false);
     expect(enforcer.isAllowed(entity.component, location.z)).toBe(false);
@@ -58,7 +89,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should deny all', () => {
-    const enforcer = new CatalogRulesEnforcer([{ allow: [] }]);
+    const enforcer = new DefaultCatalogRulesEnforcer([{ allow: [] }]);
     expect(enforcer.isAllowed(entity.user, location.x)).toBe(false);
     expect(enforcer.isAllowed(entity.group, location.y)).toBe(false);
     expect(enforcer.isAllowed(entity.component, location.z)).toBe(false);
@@ -66,7 +97,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should allow all', () => {
-    const enforcer = new CatalogRulesEnforcer([
+    const enforcer = new DefaultCatalogRulesEnforcer([
       {
         allow: ['User', 'Group', 'Component', 'Location'].map(kind => ({
           kind,
@@ -80,7 +111,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should deny groups', () => {
-    const enforcer = new CatalogRulesEnforcer([
+    const enforcer = new DefaultCatalogRulesEnforcer([
       { allow: [{ kind: 'User' }, { kind: 'Component' }] },
     ]);
     expect(enforcer.isAllowed(entity.user, location.x)).toBe(true);
@@ -91,7 +122,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should deny groups from github', () => {
-    const enforcer = new CatalogRulesEnforcer([
+    const enforcer = new DefaultCatalogRulesEnforcer([
       { allow: [{ kind: 'User' }, { kind: 'Component' }] },
       { allow: [{ kind: 'Group' }], locations: [{ type: 'file' }] },
     ]);
@@ -103,7 +134,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should allow groups from files', () => {
-    const enforcer = new CatalogRulesEnforcer([
+    const enforcer = new DefaultCatalogRulesEnforcer([
       { allow: [{ kind: 'Group' }], locations: [{ type: 'file' }] },
     ]);
     expect(enforcer.isAllowed(entity.user, location.x)).toBe(false);
@@ -114,7 +145,7 @@ describe('CatalogRulesEnforcer', () => {
   });
 
   it('should not be sensitive to kind case', () => {
-    const enforcer = new CatalogRulesEnforcer([
+    const enforcer = new DefaultCatalogRulesEnforcer([
       { allow: [{ kind: 'group' }] },
       { allow: [{ kind: 'Component' }] },
     ]);
@@ -127,7 +158,9 @@ describe('CatalogRulesEnforcer', () => {
 
   describe('fromConfig', () => {
     it('should allow components by default', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(new ConfigReader({}));
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
+        new ConfigReader({}),
+      );
       expect(enforcer.isAllowed(entity.user, location.x)).toBe(false);
       expect(enforcer.isAllowed(entity.group, location.y)).toBe(false);
       expect(enforcer.isAllowed(entity.component, location.z)).toBe(true);
@@ -135,7 +168,7 @@ describe('CatalogRulesEnforcer', () => {
     });
 
     it('should deny all', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
         new ConfigReader({ catalog: { rules: [] } }),
       );
       expect(enforcer.isAllowed(entity.user, location.x)).toBe(false);
@@ -145,7 +178,7 @@ describe('CatalogRulesEnforcer', () => {
     });
 
     it('should allow all', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
         new ConfigReader({
           catalog: {
             rules: [{ allow: ['User', 'Group'] }, { allow: ['Component'] }],
@@ -158,7 +191,7 @@ describe('CatalogRulesEnforcer', () => {
     });
 
     it('should deny groups', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
         new ConfigReader({
           catalog: { rules: [{ allow: ['User'] }, { allow: ['Component'] }] },
         }),
@@ -172,13 +205,13 @@ describe('CatalogRulesEnforcer', () => {
     });
 
     it('should allow groups from a specific github location', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
         new ConfigReader({
           catalog: {
             rules: [{ allow: ['user'] }],
             locations: [
               {
-                type: 'github',
+                type: 'url',
                 target: 'https://github.com/a/b/blob/master/x.yaml',
                 rules: [
                   {
@@ -199,10 +232,10 @@ describe('CatalogRulesEnforcer', () => {
     });
 
     it('should not care about location configuration in catalog.rules', () => {
-      const enforcer = CatalogRulesEnforcer.fromConfig(
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
         new ConfigReader({
           catalog: {
-            rules: [{ allow: ['Group'], locations: [{ type: 'github' }] }],
+            rules: [{ allow: ['Group'] }],
           },
         }),
       );
@@ -213,5 +246,41 @@ describe('CatalogRulesEnforcer', () => {
       expect(enforcer.isAllowed(entity.component, location.z)).toBe(false);
       expect(enforcer.isAllowed(entity.location, location.z)).toBe(false);
     });
+
+    it('should only allow locations that match a given pattern', () => {
+      const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
+        new ConfigReader({
+          catalog: {
+            rules: [
+              {
+                allow: ['Component'],
+                locations: [
+                  { type: 'url', pattern: 'https://github.com/b/**' },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      expect(enforcer.isAllowed(entity.component, location.w)).toBe(true);
+      expect(enforcer.isAllowed(entity.component, location.y)).toBe(false);
+      expect(enforcer.isAllowed(entity.component, location.z)).toBe(false);
+    });
+  });
+
+  it('should allow locations with a hidden folder', () => {
+    const enforcer = DefaultCatalogRulesEnforcer.fromConfig(
+      new ConfigReader({
+        catalog: {
+          rules: [
+            {
+              allow: ['Component'],
+              locations: [{ type: 'url', pattern: 'https://github.com/b/**' }],
+            },
+          ],
+        },
+      }),
+    );
+    expect(enforcer.isAllowed(entity.component, location.v)).toBe(true);
   });
 });

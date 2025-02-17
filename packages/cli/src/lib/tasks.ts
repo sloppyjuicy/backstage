@@ -15,38 +15,38 @@
  */
 
 import chalk from 'chalk';
-import fs from 'fs-extra';
-import handlebars from 'handlebars';
 import ora from 'ora';
-import { basename, dirname } from 'path';
-import recursive from 'recursive-readdir';
-import { paths } from './paths';
+import { promisify } from 'util';
+import { exec as execCb } from 'child_process';
+import { assertError } from '@backstage/errors';
+
+const exec = promisify(execCb);
 
 const TASK_NAME_MAX_LENGTH = 14;
 
 export class Task {
   static log(name: string = '') {
-    process.stdout.write(`${chalk.green(name)}\n`);
+    process.stderr.write(`${chalk.green(name)}\n`);
   }
 
   static error(message: string = '') {
-    process.stdout.write(`\n${chalk.red(message)}\n\n`);
+    process.stderr.write(`\n${chalk.red(message)}\n\n`);
   }
 
   static section(name: string) {
     const title = chalk.green(`${name}:`);
-    process.stdout.write(`\n ${title}\n`);
+    process.stderr.write(`\n ${title}\n`);
   }
 
   static exit(code: number = 0) {
     process.exit(code);
   }
 
-  static async forItem(
+  static async forItem<T = void>(
     task: string,
     item: string,
-    taskFunc: () => Promise<void>,
-  ): Promise<void> {
+    taskFunc: () => Promise<T>,
+  ): Promise<T> {
     const paddedTask = chalk.green(task.padEnd(TASK_NAME_MAX_LENGTH));
 
     const spinner = ora({
@@ -56,69 +56,38 @@ export class Task {
     }).start();
 
     try {
-      await taskFunc();
+      const result = await taskFunc();
       spinner.succeed();
+      return result;
     } catch (error) {
       spinner.fail();
       throw error;
     }
   }
-}
 
-export async function templatingTask(
-  templateDir: string,
-  destinationDir: string,
-  context: any,
-  versions: { [name: string]: string },
-) {
-  const files = await recursive(templateDir).catch(error => {
-    throw new Error(`Failed to read template directory: ${error.message}`);
-  });
-  const isMonoRepo = await fs.pathExists(paths.resolveTargetRoot('lerna.json'));
-
-  for (const file of files) {
-    const destinationFile = file.replace(templateDir, destinationDir);
-    await fs.ensureDir(dirname(destinationFile));
-
-    if (file.endsWith('.hbs')) {
-      await Task.forItem('templating', basename(file), async () => {
-        const destination = destinationFile.replace(/\.hbs$/, '');
-
-        const template = await fs.readFile(file);
-        const compiled = handlebars.compile(template.toString());
-        const contents = compiled(
-          { name: basename(destination), ...context },
-          {
-            helpers: {
-              version(name: string) {
-                if (versions[name]) {
-                  return versions[name];
-                }
-                throw new Error(`No version available for package ${name}`);
-              },
-            },
-          },
-        );
-
-        await fs.writeFile(destination, contents).catch(error => {
-          throw new Error(
-            `Failed to create file: ${destination}: ${error.message}`,
-          );
-        });
+  static async forCommand(
+    command: string,
+    options?: { cwd?: string; optional?: boolean },
+  ) {
+    try {
+      await Task.forItem('executing', command, async () => {
+        await exec(command, { cwd: options?.cwd });
       });
-    } else {
-      if (isMonoRepo && file.match('tsconfig.json')) {
-        continue;
+    } catch (error) {
+      assertError(error);
+      if (error.stderr) {
+        process.stderr.write(error.stderr as Buffer);
       }
-
-      await Task.forItem('copying', basename(file), async () => {
-        await fs.copyFile(file, destinationFile).catch(error => {
-          const destination = destinationFile;
-          throw new Error(
-            `Failed to copy file to ${destination} : ${error.message}`,
-          );
-        });
-      });
+      if (error.stdout) {
+        process.stdout.write(error.stdout as Buffer);
+      }
+      if (options?.optional) {
+        Task.error(`Warning: Failed to execute command ${chalk.cyan(command)}`);
+      } else {
+        throw new Error(
+          `Failed to execute command '${chalk.cyan(command)}', ${error}`,
+        );
+      }
     }
   }
 }

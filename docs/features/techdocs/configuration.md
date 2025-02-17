@@ -20,7 +20,7 @@ techdocs:
     # spin up the techdocs-container docker image or to run mkdocs locally (assuming all the dependencies are taken care of).
     # You want to change this to 'local' if you are running Backstage using your own custom Docker setup and want to avoid running
     # into Docker in Docker situation. Read more here
-    # https://backstage.io/docs/features/techdocs/getting-started#disable-docker-in-docker-situation-optional
+    # https://backstage.io/docs/features/techdocs/getting-started/#disabling-docker-in-docker-situation-optional
 
     runIn: 'docker'
 
@@ -37,12 +37,38 @@ techdocs:
 
     pullImage: true
 
-  # techdocs.builder can be either 'local' or 'external.
-  # If builder is set to 'local' and you open a TechDocs page, techdocs-backend will try to generate the docs, publish to storage
-  # and show the generated docs afterwords. This is the "Basic" setup of the TechDocs Architecture.
-  # If builder is set to 'external', techdocs-backend will only fetch the docs and will NOT try to generate and publish. In this case of 'external',
-  # we assume that docs are being built by an external process (e.g. in the CI/CD pipeline of the repository). This is the "Recommended" setup of
-  # the architecture. Read more here https://backstage.io/docs/features/techdocs/architecture
+    mkdocs:
+      # (Optional)  techdocs.generator.omitTechdocsCoreMkdocsPlugin can be used to disable automatic addition of techdocs-core plugin to the mkdocs.yaml files.
+      # Defaults to false, which means that the techdocs-core plugin is always added to the mkdocs file.
+      omitTechdocsCorePlugin: false
+
+      # (Optional and not recommended) Configures the techdocs generator to
+      # attempt to ensure an index.md exists falling back to using <docs-dir>/README.md
+      # or README.md in case a default <docs-dir>/index.md is not provided.
+      # Note that https://www.mkdocs.org/user-guide/configuration/#edit_uri behavior
+      # will be broken in these scenarios.
+      legacyCopyReadmeMdToIndexMd: false
+
+      # (Optional) Configures the default plugins which should be added
+      # automatically to every mkdocs.yaml file. This simplifies the usage as
+      # e.g. styling plugins can be added once for all.
+      # Make sure that the defined plugins are installed locally / in the Docker
+      # image.
+      # By default, only the techdocs-core plugin will be added (except if
+      # omitTechdocsCorePlugin: true).
+      defaultPlugins: ['techdocs-core']
+
+  # techdocs.builder can be either 'local' or 'external'.
+  # Using the default build strategy, if builder is set to 'local' and you open a TechDocs page,
+  # techdocs-backend will try to generate the docs, publish to storage and show the generated docs afterwards.
+  # This is the "Basic" setup of the TechDocs Architecture.
+  # Using the default build strategy, if builder is set to 'external' (or anything other than 'local'), techdocs-backend
+  # will only fetch the docs and will NOT try to generate and publish.
+  # In this case, we assume that docs are being built by an external process (e.g. in the CI/CD pipeline of the repository).
+  # This is the "Recommended" setup of the architecture.
+  # Note that custom build strategies may alter this behaviour.
+  # Read more about the "Basic" and "Recommended" setups here https://backstage.io/docs/features/techdocs/architecture
+  # Read more about build strategies here: https://backstage.io/docs/features/techdocs/concepts#techdocs-build-strategy
 
   builder: 'local'
 
@@ -57,11 +83,21 @@ techdocs:
 
     type: 'local'
 
+    # Optional when techdocs.publisher.type is set to 'local'.
+
+    local:
+      # (Optional). Set this to specify where the generated documentation is stored.
+      publishDirectory: '/path/to/local/directory'
+
     # Required when techdocs.publisher.type is set to 'googleGcs'. Skip otherwise.
 
     googleGcs:
       # (Required) Cloud Storage Bucket Name
       bucketName: 'techdocs-storage'
+
+      # (Optional) Location in storage bucket to save files
+      # If not set, the default location will be the root of the storage bucket
+      bucketRootPath: '/'
 
       # (Optional) An API key is required to write to a storage bucket.
       # If missing, GOOGLE_APPLICATION_CREDENTIALS environment variable will be used.
@@ -75,10 +111,26 @@ techdocs:
       # (Required) AWS S3 Bucket Name
       bucketName: 'techdocs-storage'
 
-      # (Optional) An API key is required to write to a storage bucket.
-      # If not set, environment variables or aws config file will be used to authenticate.
-      # https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/loading-node-credentials-environment.html
-      # https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/loading-node-credentials-shared.html
+      # (Optional) Location in storage bucket to save files
+      # If not set, the default location will be the root of the storage bucket
+      bucketRootPath: '/'
+
+      # (Optional) The AWS account ID where the storage bucket is located.
+      # Credentials for the account ID must be configured in the 'aws' app config section.
+      # See the integration-aws-node package for details on how to configure credentials in
+      # the 'aws' app config section.
+      # https://www.npmjs.com/package/@backstage/integration-aws-node
+      # If account ID is not set and no credentials are set, environment variables or aws config file will be used to authenticate.
+      # https://www.npmjs.com/package/@aws-sdk/credential-provider-node
+      # https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html
+      accountId: ${TECHDOCS_AWSS3_ACCOUNT_ID}
+
+      # (Optional) AWS credentials to use to write to the storage bucket.
+      # This configuration section is now deprecated.
+      # Configuring the account ID is now preferred, with credentials in the 'aws' app config section.
+      # If credentials are not set and no account ID is set, environment variables or aws config file will be used to authenticate.
+      # https://www.npmjs.com/package/@aws-sdk/credential-provider-node
+      # https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html
       credentials:
         accessKeyId: ${TECHDOCS_AWSS3_ACCESS_KEY_ID_CREDENTIAL}
         secretAccessKey: ${TECHDOCS_AWSS3_SECRET_ACCESS_KEY_CREDENTIAL}
@@ -90,19 +142,36 @@ techdocs:
 
       # (Optional) Endpoint URI to send requests to.
       # If not set, the default endpoint is built from the configured region.
-      # https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/S3.html#constructor-property
+      # https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/clients/client-s3/interfaces/s3clientconfig.html#endpoint
       endpoint: ${AWS_ENDPOINT}
+
+      # (Optional) HTTPS proxy to use for S3 Requests
+      # Defaults to using no proxy
+      # This allows docs to be published and read from behind a proxy
+      httpsProxy: ${HTTPS_PROXY}
 
       # (Optional) Whether to use path style URLs when communicating with S3.
       # Defaults to false.
       # This allows providers like LocalStack, Minio and Wasabi (and possibly others) to be used to host tech docs.
       s3ForcePathStyle: false
 
+      # (Optional) AWS Server Side Encryption
+      # Defaults to undefined.
+      # If not set, encrypted buckets will fail to publish.
+      # https://docs.aws.amazon.com/AmazonS3/latest/userguide/specifying-s3-encryption.html
+      sse: 'aws:kms' # or AES256
+
     # Required when techdocs.publisher.type is set to 'azureBlobStorage'. Skip otherwise.
 
     azureBlobStorage:
       # (Required) Azure Blob Storage Container Name
       containerName: 'techdocs-storage'
+
+      # (Optional) Azure blob storage connection string.
+      # Can be useful for local testing through azurite
+      # Defaults to undefined
+      # if provided, takes higher priority, 'techdocs.publisher.azureBlobStorage.credentials' will become irrelevant
+      connectionString: ''
 
       # (Required) An account name is required to write to a storage blob container.
       # https://docs.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key
@@ -113,14 +182,28 @@ techdocs:
         # https://docs.microsoft.com/en-us/azure/storage/common/storage-auth?toc=/azure/storage/blobs/toc.json
         accountKey: ${TECHDOCS_AZURE_BLOB_STORAGE_ACCOUNT_KEY}
 
-  # (Optional and Legacy) TechDocs makes API calls to techdocs-backend using this URL. e.g. get docs of an entity, get metadata, etc.
-  # You don't have to specify this anymore.
+  # (Optional and not recommended) Prior to version [0.x.y] of TechDocs, docs
+  # sites could only be accessed over paths with case-sensitive entity triplets
+  # e.g. (namespace/Kind/name). If you are upgrading from an older version of
+  # TechDocs and are unable to perform the necessary migration of files in your
+  # external storage, you can set this value to `true` to temporarily revert to
+  # the old, case-sensitive entity triplet behavior.
+  legacyUseCaseSensitiveTripletPaths: false
 
-  requestUrl: http://localhost:7000/api/techdocs
+  # techdocs.cache is optional, and is only recommended when you've configured
+  # an external techdocs.publisher.type above. Also requires backend.cache to
+  # be configured with a valid cache store. Configure techdocs.cache.ttl to
+  # enable caching of techdocs assets.
+  cache:
+    # Represents the number of milliseconds a statically built asset should
+    # stay cached. Cache invalidation is handled automatically by the frontend,
+    # which compares the build times in cached metadata vs. canonical storage,
+    # allowing long TTLs (e.g. 1 month/year)
+    ttl: 3600000
 
-  # (Optional and Legacy) Just another route in techdocs-backend where TechDocs requests the static files from. This URL uses an HTTP middleware
-  # to serve files from either a local directory or an External storage provider.
-  # You don't have to specify this anymore.
-
-  storageUrl: http://localhost:7000/api/techdocs/static/docs
+    # (Optional) The time (in milliseconds) that the TechDocs backend will wait
+    # for a cache service to respond before continuing on as though the cached
+    # object was not found (e.g. when the cache service is unavailable). The
+    # default value is 1000
+    readTimeout: 500
 ```

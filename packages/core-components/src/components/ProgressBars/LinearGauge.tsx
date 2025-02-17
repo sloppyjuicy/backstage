@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import { Tooltip, useTheme } from '@material-ui/core';
-// @ts-ignore
+import { useTheme } from '@material-ui/core/styles';
+import Tooltip from '@material-ui/core/Tooltip';
+import Typography from '@material-ui/core/Typography';
 import { Line } from 'rc-progress';
-import { BackstageTheme } from '@backstage/theme';
-import { getProgressColor } from './Gauge';
+import React from 'react';
+
+import { GaugePropsGetColor, getProgressColor } from './Gauge';
 
 type Props = {
   /**
    * Progress value between 0.0 - 1.0.
    */
   value: number;
+  width?: 'thick' | 'thin';
+  getColor?: GaugePropsGetColor;
 };
 
-export const LinearGauge = ({ value }: Props) => {
-  const theme = useTheme<BackstageTheme>();
+export function LinearGauge(props: Props) {
+  const { value, getColor = getProgressColor, width = 'thick' } = props;
+  const { palette } = useTheme();
   if (isNaN(value)) {
     return null;
   }
@@ -37,17 +41,23 @@ export const LinearGauge = ({ value }: Props) => {
   if (percent > 100) {
     percent = 100;
   }
-  const strokeColor = getProgressColor(theme.palette, percent, false, 100);
+  const lineWidth = width === 'thick' ? 4 : 1;
+  const strokeColor = getColor({
+    palette,
+    value: percent,
+    inverse: false,
+    max: 100,
+  });
   return (
     <Tooltip title={`${percent}%`}>
-      <span>
+      <Typography component="span">
         <Line
           percent={percent}
-          strokeWidth={4}
-          trailWidth={4}
+          strokeWidth={lineWidth}
+          trailWidth={lineWidth}
           strokeColor={strokeColor}
         />
-      </span>
+      </Typography>
     </Tooltip>
   );
-};
+}

@@ -14,22 +14,57 @@
  * limitations under the License.
  */
 
-import { Grid, Typography } from '@material-ui/core';
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
 import LocationOnIcon from '@material-ui/icons/LocationOn';
 import React from 'react';
-import { BackButton } from '../Buttons';
+import { BackButton, ViewComponentButton } from '../Buttons';
 import { EntityListComponent } from '../EntityListComponent';
 import { PrepareResult } from '../useImportState';
 import { Link } from '@backstage/core-components';
+import partition from 'lodash/partition';
+import { CompoundEntityRef, DEFAULT_NAMESPACE } from '@backstage/catalog-model';
+import { entityRouteRef } from '@backstage/plugin-catalog-react';
+import { useRouteRef } from '@backstage/core-plugin-api';
 
 type Props = {
   prepareResult: PrepareResult;
   onReset: () => void;
 };
 
-export const StepFinishImportLocation = ({ prepareResult, onReset }: Props) => (
-  <>
-    {prepareResult.type === 'repository' && (
+// Among the newly registered entities, return a software entity (e.g. Component, API, Resource)
+const filterComponentEntity = (
+  newLocations: Array<{
+    exists?: boolean;
+    target: string;
+    entities: CompoundEntityRef[];
+  }>,
+): CompoundEntityRef | null => {
+  for (const location of newLocations) {
+    for (const entity of location.entities) {
+      if (
+        ['component', 'api', 'resource'].includes(
+          entity.kind.toLocaleLowerCase('en-US'),
+        )
+      ) {
+        return {
+          kind: entity.kind.toLocaleLowerCase('en-US'),
+          namespace:
+            entity.namespace?.toLocaleLowerCase('en-US') ?? DEFAULT_NAMESPACE,
+          name: entity.name,
+        };
+      }
+    }
+  }
+
+  return null;
+};
+
+export const StepFinishImportLocation = ({ prepareResult, onReset }: Props) => {
+  const entityRoute = useRouteRef(entityRouteRef);
+
+  if (prepareResult.type === 'repository') {
+    return (
       <>
         <Typography paragraph>
           The following Pull Request has been opened:{' '}
@@ -41,25 +76,57 @@ export const StepFinishImportLocation = ({ prepareResult, onReset }: Props) => (
             {prepareResult.pullRequest.url}
           </Link>
         </Typography>
-
         <Typography paragraph>
           Your entities will be imported as soon as the Pull Request is merged.
         </Typography>
+        <Grid container spacing={0}>
+          <BackButton onClick={onReset}>Register another</BackButton>
+        </Grid>
       </>
-    )}
+    );
+  }
 
-    <Typography>
-      The following entities have been added to the catalog:
-    </Typography>
+  const [existingLocations, newLocations] = partition(
+    prepareResult.locations,
+    l => l.exists,
+  );
+  const newComponentEntity = filterComponentEntity(newLocations);
+  return (
+    <>
+      {newLocations.length > 0 && (
+        <>
+          <Typography>
+            The following entities have been added to the catalog:
+          </Typography>
 
-    <EntityListComponent
-      locations={prepareResult.locations}
-      locationListItemIcon={() => <LocationOnIcon />}
-      withLinks
-    />
+          <EntityListComponent
+            locations={newLocations}
+            locationListItemIcon={() => <LocationOnIcon />}
+            withLinks
+          />
+        </>
+      )}
+      {existingLocations.length > 0 && (
+        <>
+          <Typography>
+            A refresh was triggered for the following locations:
+          </Typography>
 
-    <Grid container spacing={0}>
-      <BackButton onClick={onReset}>Register another</BackButton>
-    </Grid>
-  </>
-);
+          <EntityListComponent
+            locations={existingLocations}
+            locationListItemIcon={() => <LocationOnIcon />}
+            withLinks
+          />
+        </>
+      )}
+      <Grid container spacing={0}>
+        {newComponentEntity && (
+          <ViewComponentButton to={entityRoute(newComponentEntity)}>
+            View Component
+          </ViewComponentButton>
+        )}
+        <BackButton onClick={onReset}>Register another</BackButton>
+      </Grid>
+    </>
+  );
+};

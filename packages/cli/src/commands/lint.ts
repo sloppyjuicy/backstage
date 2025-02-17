@@ -14,20 +14,53 @@
  * limitations under the License.
  */
 
-import { Command } from 'commander';
-import { run } from '../lib/run';
+import fs from 'fs-extra';
+import { OptionValues } from 'commander';
 import { paths } from '../lib/paths';
+import { ESLint } from 'eslint';
 
-export default async (cmd: Command, cmdArgs: string[]) => {
-  const args = [
-    '--ext=js,jsx,ts,tsx',
-    '--max-warnings=0',
-    `--format=${cmd.format}`,
-    ...(cmdArgs ?? [paths.targetDir]),
-  ];
-  if (cmd.fix) {
-    args.push('--fix');
+export default async (directories: string[], opts: OptionValues) => {
+  const eslint = new ESLint({
+    cwd: paths.targetDir,
+    fix: opts.fix,
+    extensions: ['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'],
+  });
+
+  const results = await eslint.lintFiles(
+    directories.length ? directories : ['.'],
+  );
+
+  const maxWarnings = opts.maxWarnings ?? 0;
+  const ignoreWarnings = +maxWarnings === -1;
+
+  const failed =
+    results.some(r => r.errorCount > 0) ||
+    (!ignoreWarnings &&
+      results.reduce((current, next) => current + next.warningCount, 0) >
+        maxWarnings);
+
+  if (opts.fix) {
+    await ESLint.outputFixes(results);
   }
 
-  await run('eslint', args);
+  const formatter = await eslint.loadFormatter(opts.format);
+
+  // This formatter uses the cwd to format file paths, so let's have that happen from the root instead
+  if (opts.format === 'eslint-formatter-friendly') {
+    process.chdir(paths.targetRoot);
+  }
+
+  const resultText = await formatter.format(results);
+
+  if (resultText) {
+    if (opts.outputFile) {
+      await fs.writeFile(paths.resolveTarget(opts.outputFile), resultText);
+    } else {
+      console.log(resultText);
+    }
+  }
+
+  if (failed) {
+    process.exit(1);
+  }
 };

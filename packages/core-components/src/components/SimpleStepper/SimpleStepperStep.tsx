@@ -13,40 +13,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import Box from '@material-ui/core/Box';
+import MuiStep from '@material-ui/core/Step';
+import StepContent from '@material-ui/core/StepContent';
+import StepLabel from '@material-ui/core/StepLabel';
+import { makeStyles } from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
 import React, { PropsWithChildren } from 'react';
-import {
-  Step as MuiStep,
-  StepContent,
-  StepLabel,
-  Typography,
-  makeStyles,
-} from '@material-ui/core';
+
 import { SimpleStepperFooter } from './SimpleStepperFooter';
 import { StepProps } from './types';
 
-const useStyles = makeStyles(theme => ({
-  end: {
-    padding: theme.spacing(3),
-  },
-}));
+export type SimpleStepperStepClassKey = 'end';
 
-export const SimpleStepperStep = ({
-  title,
-  children,
-  end,
-  actions,
-  ...muiProps
-}: PropsWithChildren<StepProps>) => {
+const useStyles = makeStyles(
+  theme => ({
+    end: {
+      padding: theme.spacing(3),
+    },
+  }),
+  { name: 'SimpleStepperStep' },
+);
+
+export function SimpleStepperStep(props: PropsWithChildren<StepProps>) {
+  const { title, children, end, actions, ...muiProps } = props;
   const classes = useStyles();
 
   // The end step is not a part of the stepper
   // It simply is the final screen with an option to have buttons such as reset or back
   return end ? (
-    <div className={classes.end}>
+    <Box className={classes.end}>
       <Typography variant="h6">{title}</Typography>
       {children}
       <SimpleStepperFooter actions={{ ...(actions || {}), showNext: false }} />
-    </div>
+    </Box>
   ) : (
     <MuiStep {...muiProps}>
       <StepLabel>
@@ -58,4 +58,4 @@ export const SimpleStepperStep = ({
       </StepContent>
     </MuiStep>
   );
-};
+}

@@ -13,36 +13,49 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import Box from '@material-ui/core/Box';
+import { makeStyles } from '@material-ui/core/styles';
+import TabUI, { TabProps } from '@material-ui/core/Tab';
+import Tabs from '@material-ui/core/Tabs';
+import React, { useCallback, useEffect, useState } from 'react';
 
 // TODO(blam): Remove this implementation when the Tabs are ready
 // This is just a temporary solution to implementing tabs for now
 
-import React, { useState, useEffect } from 'react';
-import { makeStyles, Tabs, Tab as TabUI, TabProps } from '@material-ui/core';
+/** @public */
+export type HeaderTabsClassKey =
+  | 'tabsWrapper'
+  | 'defaultTab'
+  | 'selected'
+  | 'tabRoot';
 
-const useStyles = makeStyles(theme => ({
-  tabsWrapper: {
-    gridArea: 'pageSubheader',
-    backgroundColor: theme.palette.background.paper,
-    paddingLeft: theme.spacing(3),
-  },
-  defaultTab: {
-    padding: theme.spacing(3, 3),
-    ...theme.typography.caption,
-    textTransform: 'uppercase',
-    fontWeight: 'bold',
-    color: theme.palette.text.secondary,
-  },
-  selected: {
-    color: theme.palette.text.primary,
-  },
-  tabRoot: {
-    '&:hover': {
-      backgroundColor: theme.palette.background.default,
+const useStyles = makeStyles(
+  theme => ({
+    tabsWrapper: {
+      gridArea: 'pageSubheader',
+      backgroundColor: theme.palette.background.paper,
+      paddingLeft: theme.spacing(3),
+      minWidth: 0,
+    },
+    defaultTab: {
+      ...theme.typography.caption,
+      padding: theme.spacing(3, 3),
+      textTransform: 'uppercase',
+      fontWeight: theme.typography.fontWeightBold,
+      color: theme.palette.text.secondary,
+    },
+    selected: {
       color: theme.palette.text.primary,
     },
-  },
-}));
+    tabRoot: {
+      '&:hover': {
+        backgroundColor: theme.palette.background.default,
+        color: theme.palette.text.primary,
+      },
+    },
+  }),
+  { name: 'BackstageHeaderTabs' },
+);
 
 export type Tab = {
   id: string;
@@ -55,20 +68,27 @@ type HeaderTabsProps = {
   onChange?: (index: number) => void;
   selectedIndex?: number;
 };
-export const HeaderTabs = ({
-  tabs,
-  onChange,
-  selectedIndex,
-}: HeaderTabsProps) => {
+
+/**
+ * Horizontal Tabs component
+ *
+ * @public
+ *
+ */
+export function HeaderTabs(props: HeaderTabsProps) {
+  const { tabs, onChange, selectedIndex } = props;
   const [selectedTab, setSelectedTab] = useState<number>(selectedIndex ?? 0);
   const styles = useStyles();
 
-  const handleChange = (_: React.ChangeEvent<{}>, index: number) => {
-    if (selectedIndex === undefined) {
-      setSelectedTab(index);
-    }
-    if (onChange) onChange(index);
-  };
+  const handleChange = useCallback(
+    (_: React.ChangeEvent<{}>, index: number) => {
+      if (selectedIndex === undefined) {
+        setSelectedTab(index);
+      }
+      if (onChange) onChange(index);
+    },
+    [selectedIndex, onChange],
+  );
 
   useEffect(() => {
     if (selectedIndex !== undefined) {
@@ -77,28 +97,28 @@ export const HeaderTabs = ({
   }, [selectedIndex]);
 
   return (
-    <div className={styles.tabsWrapper}>
+    <Box className={styles.tabsWrapper}>
       <Tabs
-        selectionFollowsFocus
         indicatorColor="primary"
         textColor="inherit"
         variant="scrollable"
         scrollButtons="auto"
-        aria-label="scrollable auto tabs example"
+        aria-label="tabs"
         onChange={handleChange}
         value={selectedTab}
       >
         {tabs.map((tab, index) => (
           <TabUI
-            {...tab.tabProps}
+            data-testid={`header-tab-${index}`}
             label={tab.label}
             key={tab.id}
             value={index}
             className={styles.defaultTab}
             classes={{ selected: styles.selected, root: styles.tabRoot }}
+            {...tab.tabProps}
           />
         ))}
       </Tabs>
-    </div>
+    </Box>
   );
-};
+}

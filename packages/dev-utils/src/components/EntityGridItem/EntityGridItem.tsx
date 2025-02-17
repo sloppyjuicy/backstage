@@ -16,11 +16,11 @@
 
 import { Entity } from '@backstage/catalog-model';
 import { EntityProvider } from '@backstage/plugin-catalog-react';
-import { BackstageTheme } from '@backstage/theme';
-import { Grid, GridProps, makeStyles } from '@material-ui/core';
+import Grid, { GridProps } from '@material-ui/core/Grid';
+import { Theme, makeStyles } from '@material-ui/core/styles';
 import React from 'react';
 
-const useStyles = makeStyles<BackstageTheme, { entity: Entity }>(theme => ({
+const useStyles = makeStyles<Theme, { entity: Entity }>(theme => ({
   root: ({ entity }) => ({
     position: 'relative',
 
@@ -34,11 +34,11 @@ const useStyles = makeStyles<BackstageTheme, { entity: Entity }>(theme => ({
   }),
 }));
 
-export const EntityGridItem = ({
-  entity,
-  classes,
-  ...rest
-}: Omit<GridProps, 'item' | 'container'> & { entity: Entity }): JSX.Element => {
+/** @public */
+export const EntityGridItem = (
+  props: Omit<GridProps, 'item' | 'container'> & { entity: Entity },
+): JSX.Element => {
+  const { entity, classes, ...rest } = props;
   const itemClasses = useStyles({ entity });
 
   return (

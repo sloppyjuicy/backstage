@@ -1,8 +1,18 @@
-module.exports = {
-  extends: [require.resolve('@backstage/cli/config/eslint.backend')],
+module.exports = require('@backstage/cli/config/eslint-factory')(__dirname, {
   ignorePatterns: ['sample-templates/'],
-  rules: {
-    'no-console': 0, // Permitted in console programs
-    'new-cap': ['error', { capIsNew: false }], // Because Express constructs things e.g. like 'const r = express.Router()'
-  },
-};
+  restrictedSrcImports: [
+    {
+      name: 'path',
+      importNames: ['resolve'],
+      message:
+        'Do not use path.resolve, use `resolveSafeChildPath` from `@backstage/backend-common` instead as it prevents security issues',
+    },
+  ],
+  restrictedSrcSyntax: [
+    {
+      message:
+        'Do not use path.resolve, use `resolveSafeChildPath` from `@backstage/backend-common` instead as it prevents security issues',
+      selector: 'MemberExpression[object.name="path"][property.name="resolve"]',
+    },
+  ],
+});

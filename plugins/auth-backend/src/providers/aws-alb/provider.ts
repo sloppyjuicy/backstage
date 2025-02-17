@@ -13,121 +13,46 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import {
-  AuthProviderFactoryOptions,
-  AuthProviderRouteHandlers,
-  ExperimentalIdentityResolver,
-} from '../types';
-import express from 'express';
-import fetch from 'cross-fetch';
-import * as crypto from 'crypto';
-import { KeyObject } from 'crypto';
-import { Logger } from 'winston';
-import NodeCache from 'node-cache';
-import { JWT } from 'jose';
-import { CatalogApi } from '@backstage/catalog-client';
+  AwsAlbResult,
+  awsAlbAuthenticator,
+} from '@backstage/plugin-auth-backend-module-aws-alb-provider';
+import {
+  SignInResolver,
+  createProxyAuthProviderFactory,
+} from '@backstage/plugin-auth-node';
+import { AuthHandler } from '../types';
+import { createAuthProviderIntegration } from '../createAuthProviderIntegration';
 
-const ALB_JWT_HEADER = 'x-amzn-oidc-data';
 /**
- * A callback function that receives a verified JWT and returns a UserEntity
- *  @param {payload} The verified JWT payload
+ * Auth provider integration for AWS ALB auth
+ *
+ * @public
  */
-type AwsAlbAuthProviderOptions = {
-  region: string;
-  issuer?: string;
-  identityResolutionCallback: ExperimentalIdentityResolver;
-};
-export const getJWTHeaders = (input: string) => {
-  const encoded = input.split('.')[0];
-  return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
-};
-
-export class AwsAlbAuthProvider implements AuthProviderRouteHandlers {
-  private logger: Logger;
-  private readonly catalogClient: CatalogApi;
-  private options: AwsAlbAuthProviderOptions;
-  private readonly keyCache: NodeCache;
-
-  constructor(
-    logger: Logger,
-    catalogClient: CatalogApi,
-    options: AwsAlbAuthProviderOptions,
-  ) {
-    this.logger = logger;
-    this.catalogClient = catalogClient;
-    this.options = options;
-    this.keyCache = new NodeCache({ stdTTL: 3600 });
-  }
-  frameHandler(): Promise<void> {
-    return Promise.resolve(undefined);
-  }
-
-  async refresh(req: express.Request, res: express.Response): Promise<void> {
-    const jwt = req.header(ALB_JWT_HEADER);
-    if (jwt !== undefined) {
-      try {
-        const headers = getJWTHeaders(jwt);
-        const key = await this.getKey(headers.kid);
-        const payload = JWT.verify(jwt, key);
-
-        if (this.options.issuer && headers.iss !== this.options.issuer) {
-          throw new Error('issuer mismatch on JWT');
-        }
-
-        const resolvedEntity = await this.options.identityResolutionCallback(
-          payload,
-          this.catalogClient,
-        );
-        res.json(resolvedEntity);
-      } catch (e) {
-        this.logger.error('exception occurred during JWT processing', e);
-        res.status(401);
-        res.end();
-      }
-    } else {
-      res.status(401);
-      res.end();
-    }
-  }
-
-  start(): Promise<void> {
-    return Promise.resolve(undefined);
-  }
-
-  async getKey(keyId: string): Promise<KeyObject> {
-    const optionalCacheKey = this.keyCache.get<KeyObject>(keyId);
-    if (optionalCacheKey) {
-      return crypto.createPublicKey(optionalCacheKey);
-    }
-    const keyText: string = await fetch(
-      `https://public-keys.auth.elb.${this.options.region}.amazonaws.com/${keyId}`,
-    ).then(response => response.text());
-    const keyValue = crypto.createPublicKey(keyText);
-    this.keyCache.set(keyId, keyValue.export({ format: 'pem', type: 'spki' }));
-    return keyValue;
-  }
-}
-
-export type AwsAlbProviderOptions = {};
-
-export const createAwsAlbProvider = (_options?: AwsAlbProviderOptions) => {
-  return ({
-    logger,
-    catalogApi,
-    config,
-    identityResolver,
-  }: AuthProviderFactoryOptions) => {
-    const region = config.getString('region');
-    const issuer = config.getOptionalString('iss');
-    if (identityResolver !== undefined) {
-      return new AwsAlbAuthProvider(logger, catalogApi, {
-        region,
-        issuer,
-        identityResolutionCallback: identityResolver,
-      });
-    }
-    throw new Error(
-      'Identity resolver is required to use this authentication provider',
-    );
-  };
-};
+export const awsAlb = createAuthProviderIntegration({
+  create(options?: {
+    /**
+     * The profile transformation function used to verify and convert the auth
+     * response into the profile that will be presented to the user. The default
+     * implementation just provides the authenticated email that the IAP
+     * presented.
+     */
+    authHandler?: AuthHandler<AwsAlbResult>;
+    /**
+     * Configures sign-in for this provider.
+     */
+    signIn: {
+      /**
+       * Maps an auth result to a Backstage identity for the user.
+       */
+      resolver: SignInResolver<AwsAlbResult>;
+    };
+  }) {
+    return createProxyAuthProviderFactory({
+      authenticator: awsAlbAuthenticator,
+      profileTransform: options?.authHandler,
+      signInResolver: options?.signIn?.resolver,
+    });
+  },
+});

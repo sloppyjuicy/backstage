@@ -14,18 +14,53 @@
  * limitations under the License.
  */
 
+maybeBootstrapProxy();
+
 import fs from 'fs-extra';
 import chalk from 'chalk';
 import semver from 'semver';
+import { OptionValues } from 'commander';
+import yaml from 'yaml';
+import z from 'zod';
+import { isError, NotFoundError } from '@backstage/errors';
 import { resolve as resolvePath } from 'path';
-import { run } from '../../lib/run';
 import { paths } from '../../lib/paths';
 import {
   mapDependencies,
   fetchPackageInfo,
   Lockfile,
+  YarnInfoInspectData,
 } from '../../lib/versioning';
-import { includedFilter, forbiddenDuplicatesFilter } from './lint';
+import { BACKSTAGE_JSON } from '@backstage/cli-common';
+import { runParallelWorkers } from '../../lib/parallel';
+import {
+  getManifestByReleaseLine,
+  getManifestByVersion,
+  ReleaseManifest,
+} from '@backstage/release-manifests';
+import { migrateMovedPackages } from './migrate';
+import { runYarnInstall } from './utils';
+import { run } from '../../lib/run';
+
+function maybeBootstrapProxy() {
+  // see https://www.npmjs.com/package/global-agent
+  const globalAgentNamespace =
+    process.env.GLOBAL_AGENT_ENVIRONMENT_VARIABLE_NAMESPACE ?? 'GLOBAL_AGENT_';
+  if (
+    process.env[`${globalAgentNamespace}HTTP_PROXY`] ||
+    process.env[`${globalAgentNamespace}HTTPS_PROXY`]
+  ) {
+    const globalAgent =
+      require('global-agent') as typeof import('global-agent');
+    globalAgent.bootstrap();
+  }
+
+  if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
+    const { setGlobalDispatcher, EnvHttpProxyAgent } =
+      require('undici') as typeof import('undici');
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+  }
+}
 
 const DEP_TYPES = [
   'dependencies',
@@ -34,6 +69,8 @@ const DEP_TYPES = [
   'optionalDependencies',
 ];
 
+const DEFAULT_PATTERN_GLOB = '@backstage/*';
+
 type PkgVersionInfo = {
   range: string;
   target: string;
@@ -41,152 +78,206 @@ type PkgVersionInfo = {
   location: string;
 };
 
-export default async () => {
+export default async (opts: OptionValues) => {
   const lockfilePath = paths.resolveTargetRoot('yarn.lock');
   const lockfile = await Lockfile.load(lockfilePath);
+  const hasYarnPlugin = await getHasYarnPlugin();
 
-  const findTargetVersion = createVersionFinder();
+  let pattern = opts.pattern;
+
+  if (!pattern) {
+    console.log(`Using default pattern glob ${DEFAULT_PATTERN_GLOB}`);
+    pattern = DEFAULT_PATTERN_GLOB;
+  } else if (pattern === '*') {
+    throw new Error(`Rejected pattern '*', please use a more specific pattern`);
+  } else {
+    console.log(`Using custom pattern glob ${pattern}`);
+  }
+
+  let findTargetVersion: (name: string) => Promise<string>;
+  let releaseManifest: ReleaseManifest;
+  // Specific release specified. Be strict when resolving versions
+  if (semver.valid(opts.release)) {
+    releaseManifest = await getManifestByVersion({ version: opts.release });
+    findTargetVersion = createStrictVersionFinder({
+      releaseManifest,
+    });
+  } else {
+    // Release line specified. Be lenient when resolving versions.
+    if (opts.release === 'next') {
+      const next = await getManifestByReleaseLine({
+        releaseLine: 'next',
+      });
+      const main = await getManifestByReleaseLine({
+        releaseLine: 'main',
+      });
+      // Prefer manifest with the latest release version
+      releaseManifest = semver.gt(next.releaseVersion, main.releaseVersion)
+        ? next
+        : main;
+    } else {
+      releaseManifest = await getManifestByReleaseLine({
+        releaseLine: opts.release,
+      });
+    }
+    findTargetVersion = createVersionFinder({
+      releaseLine: opts.releaseLine,
+      releaseManifest,
+    });
+  }
+
+  if (hasYarnPlugin) {
+    console.log();
+    console.log(
+      `Updating yarn plugin to v${releaseManifest.releaseVersion}...`,
+    );
+    console.log();
+    await run('yarn', [
+      'plugin',
+      'import',
+      `https://versions.backstage.io/v1/releases/${releaseManifest.releaseVersion}/yarn-plugin`,
+    ]);
+    console.log();
+  }
 
   // First we discover all Backstage dependencies within our own repo
-  const dependencyMap = await mapDependencies(paths.targetDir);
+  const dependencyMap = await mapDependencies(paths.targetDir, pattern);
 
   // Next check with the package registry to see which dependency ranges we need to bump
   const versionBumps = new Map<string, PkgVersionInfo[]>();
-  // Track package versions that we want to remove from yarn.lock in order to trigger a bump
-  const unlocked = Array<{ name: string; range: string; target: string }>();
-  await workerThreads(16, dependencyMap.entries(), async ([name, pkgs]) => {
-    let target: string;
-    try {
-      target = await findTargetVersion(name);
-    } catch (error) {
-      if (error.name === 'NotFoundError') {
-        console.log(`Package info not found, ignoring package ${name}`);
-        return;
-      }
-      throw error;
-    }
 
-    for (const pkg of pkgs) {
-      if (semver.satisfies(target, pkg.range)) {
-        if (semver.minVersion(pkg.range)?.version !== target) {
-          unlocked.push({ name, range: pkg.range, target });
+  await runParallelWorkers({
+    parallelismFactor: 4,
+    items: dependencyMap.entries(),
+    async worker([name, pkgs]) {
+      let target: string;
+      try {
+        target = await findTargetVersion(name);
+      } catch (error) {
+        if (isError(error) && error.name === 'NotFoundError') {
+          console.log(`Package info not found, ignoring package ${name}`);
+          return;
         }
-
-        continue;
+        throw error;
       }
-      versionBumps.set(
-        pkg.name,
-        (versionBumps.get(pkg.name) ?? []).concat({
-          name,
-          location: pkg.location,
-          range: `^${target}`, // TODO(Rugvip): Option to use something else than ^?
-          target,
-        }),
-      );
-    }
+
+      for (const pkg of pkgs) {
+        versionBumps.set(
+          pkg.name,
+          (versionBumps.get(pkg.name) ?? []).concat({
+            name,
+            location: pkg.location,
+            range: `^${target}`, // TODO(Rugvip): Option to use something else than ^?
+            target,
+          }),
+        );
+      }
+    },
   });
-
-  // Check for updates of transitive backstage dependencies
-  await workerThreads(16, lockfile.keys(), async name => {
-    // Only check @backstage packages and friends, we don't want this to do a full update of all deps
-    if (!includedFilter(name)) {
-      return;
-    }
-
-    let target: string;
-    try {
-      target = await findTargetVersion(name);
-    } catch (error) {
-      if (error.name === 'NotFoundError') {
-        console.log(`Package info not found, ignoring package ${name}`);
-        return;
-      }
-      throw error;
-    }
-
-    for (const entry of lockfile.get(name) ?? []) {
-      // Ignore lockfile entries that don't satisfy the version range, since
-      // these can't cause the package to be locked to an older version
-      if (!semver.satisfies(target, entry.range)) {
-        continue;
-      }
-      // Unlock all entries that are within range but on the old version
-      unlocked.push({ name, range: entry.range, target });
-    }
-  });
-
-  console.log();
 
   // Write all discovered version bumps to package.json in this repo
-  if (versionBumps.size === 0 && unlocked.length === 0) {
+  if (versionBumps.size === 0) {
     console.log(chalk.green('All Backstage packages are up to date!'));
   } else {
     console.log(chalk.yellow('Some packages are outdated, updating'));
     console.log();
 
-    if (unlocked.length > 0) {
-      const removed = new Set<string>();
-      for (const { name, range, target } of unlocked) {
-        // Don't bother removing lockfile entries if they're already on the correct version
-        const existingEntry = lockfile.get(name)?.find(e => e.range === range);
-        if (existingEntry?.version === target) {
-          continue;
-        }
-        const key = JSON.stringify({ name, range });
-        if (!removed.has(key)) {
-          removed.add(key);
-          console.log(
-            `${chalk.magenta('unlocking')} ${name}@${chalk.yellow(
-              range,
-            )} ~> ${chalk.yellow(target)}`,
-          );
-          lockfile.remove(name, range);
-        }
-      }
-      await lockfile.save();
-    }
-
     const breakingUpdates = new Map<string, { from: string; to: string }>();
-    await workerThreads(16, versionBumps.entries(), async ([name, deps]) => {
-      const pkgPath = resolvePath(deps[0].location, 'package.json');
-      const pkgJson = await fs.readJson(pkgPath);
+    await runParallelWorkers({
+      parallelismFactor: 4,
+      items: versionBumps.entries(),
+      async worker([name, deps]) {
+        const pkgPath = resolvePath(deps[0].location, 'package.json');
+        const pkgJson = await fs.readJson(pkgPath);
 
-      for (const dep of deps) {
-        console.log(
-          `${chalk.cyan('bumping')} ${dep.name} in ${chalk.cyan(
-            name,
-          )} to ${chalk.yellow(dep.range)}`,
-        );
+        for (const dep of deps) {
+          console.log(
+            `${chalk.cyan('bumping')} ${dep.name} in ${chalk.cyan(
+              name,
+            )} to ${chalk.yellow(dep.range)}`,
+          );
 
-        for (const depType of DEP_TYPES) {
-          if (depType in pkgJson && dep.name in pkgJson[depType]) {
-            const oldRange = pkgJson[depType][dep.name];
-            pkgJson[depType][dep.name] = dep.range;
+          for (const depType of DEP_TYPES) {
+            if (depType in pkgJson && dep.name in pkgJson[depType]) {
+              const oldRange = pkgJson[depType][dep.name];
 
-            // Check if the update was at least a pre-v1 minor or post-v1 major release
-            const lockfileEntry = lockfile
-              .get(dep.name)
-              ?.find(entry => entry.range === oldRange);
-            if (lockfileEntry) {
-              const from = lockfileEntry.version;
-              const to = dep.target;
-              if (!semver.satisfies(to, `^${from}`)) {
-                breakingUpdates.set(dep.name, { from, to });
+              // backstage:^ are written to the lockfile as
+              // backstage:<backstage-version>, so that updates to
+              // backstage.json can be detected during yarn install. In order to
+              // locate the corresponding lockfile entry for "backstage:^"
+              // versions, we need to perform the same transformation.
+              const oldLockfileRange = await asLockfileVersion(oldRange);
+
+              const useBackstageRange =
+                hasYarnPlugin &&
+                // Only use backstage:^ versions if the package is present in
+                // the manifest for the release we're bumping to.
+                releaseManifest.packages.find(
+                  ({ name: manifestPackageName }) =>
+                    dep.name === manifestPackageName,
+                ) &&
+                // Don't use backstage:^ versions for peerDependencies; they only
+                // support npm and workspace: versions.
+                depType !== 'peerDependencies';
+
+              const newRange = useBackstageRange ? 'backstage:^' : dep.range;
+
+              pkgJson[depType][dep.name] = newRange;
+
+              // Check if the update was at least a pre-v1 minor or post-v1 major release
+              const lockfileEntry = lockfile
+                .get(dep.name)
+                ?.find(entry => entry.range === oldLockfileRange);
+              if (lockfileEntry) {
+                const from = lockfileEntry.version;
+                const to = dep.target;
+                if (!semver.satisfies(to, `^${from}`)) {
+                  breakingUpdates.set(dep.name, { from, to });
+                }
               }
             }
           }
         }
-      }
 
-      await fs.writeJson(pkgPath, pkgJson, { spaces: 2 });
+        await fs.writeJson(pkgPath, pkgJson, { spaces: 2 });
+      },
     });
 
     console.log();
-    console.log(
-      `Running ${chalk.blue('yarn install')} to install new versions`,
-    );
-    console.log();
-    await run('yarn', ['install']);
+
+    // Do not update backstage.json when upgrade patterns are used.
+    if (pattern === DEFAULT_PATTERN_GLOB) {
+      await bumpBackstageJsonVersion(
+        releaseManifest.releaseVersion,
+        hasYarnPlugin,
+      );
+    } else {
+      console.log(
+        chalk.yellow(
+          `Skipping backstage.json update as custom pattern is used`,
+        ),
+      );
+    }
+
+    if (!opts.skipInstall) {
+      await runYarnInstall();
+    } else {
+      console.log();
+
+      console.log(chalk.yellow(`Skipping yarn install`));
+    }
+
+    if (!opts.skipMigrate) {
+      console.log();
+
+      const changed = await migrateMovedPackages({
+        pattern: opts.pattern,
+      });
+
+      if (changed && !opts.skipInstall) {
+        await runYarnInstall();
+      }
+    }
 
     if (breakingUpdates.size > 0) {
       console.log();
@@ -223,36 +314,59 @@ export default async () => {
       console.log();
     }
 
+    if (hasYarnPlugin) {
+      console.log();
+      console.log(
+        chalk.blue(
+          `${chalk.bold(
+            'NOTE',
+          )}: this bump used backstage:^ versions in package.json files, since the Backstage ` +
+            `yarn plugin was detected in the repository. To migrate back to explicit npm versions, ` +
+            `remove the plugin by running "yarn plugin remove @yarnpkg/plugin-backstage", then ` +
+            `repeat this command.`,
+        ),
+      );
+      console.log();
+    }
+
     console.log(chalk.green('Version bump complete!'));
   }
 
   console.log();
-
-  // Finally we make sure the new lockfile doesn't have any duplicates
-  const dedupLockfile = await Lockfile.load(lockfilePath);
-  const result = dedupLockfile.analyze({
-    filter: includedFilter,
-  });
-
-  if (result.newVersions.length > 0) {
-    throw new Error('Duplicate versions present after package bump');
-  }
-
-  const forbiddenNewRanges = result.newRanges.filter(({ name }) =>
-    forbiddenDuplicatesFilter(name),
-  );
-  if (forbiddenNewRanges.length > 0) {
-    throw new Error(
-      `Version bump failed for ${forbiddenNewRanges
-        .map(i => i.name)
-        .join(', ')}`,
-    );
-  }
 };
 
-function createVersionFinder() {
-  const found = new Map<string, string>();
+export function createStrictVersionFinder(options: {
+  releaseManifest: ReleaseManifest;
+}) {
+  const releasePackages = new Map(
+    options.releaseManifest.packages.map(p => [p.name, p.version]),
+  );
+  return async function findTargetVersion(name: string) {
+    console.log(`Checking for updates of ${name}`);
+    const manifestVersion = releasePackages.get(name);
+    if (manifestVersion) {
+      return manifestVersion;
+    }
+    throw new NotFoundError(`Package ${name} not found in release manifest`);
+  };
+}
 
+export function createVersionFinder(options: {
+  releaseLine?: string;
+  packageInfoFetcher?: () => Promise<YarnInfoInspectData>;
+  releaseManifest?: ReleaseManifest;
+}) {
+  const {
+    releaseLine = 'latest',
+    packageInfoFetcher = fetchPackageInfo,
+    releaseManifest,
+  } = options;
+  // The main release line is just an alias for latest
+  const distTag = releaseLine === 'main' ? 'latest' : releaseLine;
+  const found = new Map<string, string>();
+  const releasePackages = new Map(
+    releaseManifest?.packages.map(p => [p.name, p.version]),
+  );
   return async function findTargetVersion(name: string) {
     const existing = found.get(name);
     if (existing) {
@@ -260,36 +374,156 @@ function createVersionFinder() {
     }
 
     console.log(`Checking for updates of ${name}`);
-    const info = await fetchPackageInfo(name);
-    const latest = info['dist-tags'].latest;
-    if (!latest) {
-      throw new Error(`No latest version found for ${name}`);
+    const manifestVersion = releasePackages.get(name);
+    if (manifestVersion) {
+      return manifestVersion;
     }
-    found.set(name, latest);
-    return latest;
+
+    const info = await packageInfoFetcher(name);
+    const latestVersion = info['dist-tags'].latest;
+    if (!latestVersion) {
+      throw new Error(`No target 'latest' version found for ${name}`);
+    }
+
+    const taggedVersion = info['dist-tags'][distTag];
+    if (distTag === 'latest' || !taggedVersion) {
+      found.set(name, latestVersion);
+      return latestVersion;
+    }
+
+    const latestVersionDateStr = info.time[latestVersion];
+    const taggedVersionDateStr = info.time[taggedVersion];
+    if (!latestVersionDateStr) {
+      throw new Error(
+        `No time available for version '${latestVersion}' of ${name}`,
+      );
+    }
+    if (!taggedVersionDateStr) {
+      throw new Error(
+        `No time available for version '${taggedVersion}' of ${name}`,
+      );
+    }
+
+    const latestVersionRelease = new Date(latestVersionDateStr).getTime();
+    const taggedVersionRelease = new Date(taggedVersionDateStr).getTime();
+    if (latestVersionRelease > taggedVersionRelease) {
+      // Prefer latest version if it's newer.
+      found.set(name, latestVersion);
+      return latestVersion;
+    }
+
+    found.set(name, taggedVersion);
+    return taggedVersion;
   };
 }
 
-async function workerThreads<T>(
-  count: number,
-  items: IterableIterator<T>,
-  fn: (item: T) => Promise<void>,
-) {
-  const queue = Array.from(items);
+function getBackstageJsonPath() {
+  return paths.resolveTargetRoot(BACKSTAGE_JSON);
+}
 
-  async function pop() {
-    const item = queue.pop();
-    if (!item) {
+async function getBackstageJson() {
+  const backstageJsonPath = getBackstageJsonPath();
+  return fs.readJSON(backstageJsonPath).catch(e => {
+    if (e.code === 'ENOENT') {
+      // gracefully continue in case the file doesn't exist
       return;
     }
+    throw e;
+  });
+}
 
-    await fn(item);
-    await pop();
+export async function bumpBackstageJsonVersion(
+  version: string,
+  useYarnPlugin?: boolean,
+) {
+  const backstageJson = await getBackstageJson();
+  const prevVersion = backstageJson?.version;
+
+  if (prevVersion === version) {
+    return;
   }
 
-  return Promise.all(
-    Array(count)
-      .fill(0)
-      .map(() => pop()),
+  const { yellow, cyan, green } = chalk;
+  if (prevVersion) {
+    const from = encodeURIComponent(prevVersion);
+    const to = encodeURIComponent(version);
+    let link = `https://backstage.github.io/upgrade-helper/?from=${from}&to=${to}`;
+
+    if (useYarnPlugin) {
+      link += '&yarnPlugin=1';
+    }
+
+    console.log(
+      yellow(
+        `Upgraded from release ${green(prevVersion)} to ${green(
+          version,
+        )}, please review these template changes:`,
+      ),
+    );
+    console.log();
+    console.log(`  ${cyan(link)}`);
+    console.log();
+  } else {
+    console.log(
+      yellow(
+        `Your project is now at version ${version}, which has been written to ${BACKSTAGE_JSON}`,
+      ),
+    );
+  }
+
+  await fs.writeJson(
+    getBackstageJsonPath(),
+    { ...backstageJson, version },
+    {
+      spaces: 2,
+      encoding: 'utf8',
+    },
+  );
+}
+
+async function asLockfileVersion(version: string) {
+  if (version === 'backstage:^') {
+    return `backstage:${(await getBackstageJson())?.version}`;
+  }
+
+  return version;
+}
+
+const yarnRcSchema = z.object({
+  plugins: z
+    .array(
+      z.object({
+        path: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+async function getHasYarnPlugin() {
+  const yarnRcPath = paths.resolveTargetRoot('.yarnrc.yml');
+  const yarnRcContent = await fs.readFile(yarnRcPath, 'utf-8').catch(e => {
+    if (e.code === 'ENOENT') {
+      // gracefully continue in case the file doesn't exist
+      return '';
+    }
+    throw e;
+  });
+
+  if (!yarnRcContent) {
+    return false;
+  }
+
+  const parseResult = yarnRcSchema.safeParse(yaml.parse(yarnRcContent));
+
+  if (!parseResult.success) {
+    throw new Error(
+      `Unexpected content in .yarnrc.yml: ${parseResult.error.toString()}`,
+    );
+  }
+
+  const yarnRc = parseResult.data;
+
+  return yarnRc.plugins?.some(
+    plugin => plugin.path === '.yarn/plugins/@yarnpkg/plugin-backstage.cjs',
   );
 }

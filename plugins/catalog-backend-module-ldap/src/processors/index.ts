@@ -13,4 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+export { LdapOrgEntityProvider } from './LdapOrgEntityProvider';
+export type {
+  LdapOrgEntityProviderOptions,
+  LdapOrgEntityProviderLegacyOptions,
+} from './LdapOrgEntityProvider';
 export { LdapOrgReaderProcessor } from './LdapOrgReaderProcessor';

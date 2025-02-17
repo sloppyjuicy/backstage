@@ -13,5 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * todo(backstage/techdocs-core): stop exporting these in a future release.
+ */
 export { DefaultTechDocsCollator } from './DefaultTechDocsCollator';
-export type { TechDocsDocument } from './DefaultTechDocsCollator';
+export type { TechDocsCollatorOptions } from './DefaultTechDocsCollator';
+
+import { DefaultTechDocsCollatorFactory as _DefaultTechDocsCollatorFactory } from '@backstage/plugin-search-backend-module-techdocs';
+import type { TechDocsCollatorFactoryOptions as _TechDocsCollatorFactoryOptions } from '@backstage/plugin-search-backend-module-techdocs';
+
+/**
+ * @public
+ * @deprecated import from `@backstage/plugin-search-backend-module-techdocs` instead
+ */
+export type TechDocsCollatorFactoryOptions = _TechDocsCollatorFactoryOptions;
+
+/**
+ * @public
+ * @deprecated import from `@backstage/plugin-search-backend-module-techdocs` instead
+ */
+export const DefaultTechDocsCollatorFactory = _DefaultTechDocsCollatorFactory;

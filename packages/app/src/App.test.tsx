@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { renderWithEffects } from '@backstage/test-utils';
+import { render, waitFor } from '@testing-library/react';
 import App from './App';
 
 describe('App', () => {
@@ -27,14 +27,14 @@ describe('App', () => {
           data: {
             app: {
               title: 'Test',
-              support: { url: 'http://localhost:7000/support' },
+              support: { url: 'http://localhost:7007/support' },
             },
-            backend: { baseUrl: 'http://localhost:7000' },
+            backend: { baseUrl: 'http://localhost:7007' },
             lighthouse: {
               baseUrl: 'http://localhost:3003',
             },
             techdocs: {
-              storageUrl: 'http://localhost:7000/api/techdocs/static/docs',
+              storageUrl: 'http://localhost:7007/api/techdocs/static/docs',
             },
           },
           context: 'test',
@@ -42,7 +42,10 @@ describe('App', () => {
       ] as any,
     };
 
-    const rendered = await renderWithEffects(<App />);
-    expect(rendered.baseElement).toBeInTheDocument();
+    const rendered = render(<App />);
+
+    await waitFor(() => {
+      expect(rendered.baseElement).toBeInTheDocument();
+    });
   });
 });

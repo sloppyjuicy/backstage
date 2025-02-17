@@ -15,29 +15,36 @@
  */
 
 import { ApiEntity, Entity } from '@backstage/catalog-model';
+import { Content, Header, Page } from '@backstage/core-components';
 import { createDevApp } from '@backstage/dev-utils';
+import { CatalogEntityPage } from '@backstage/plugin-catalog';
 import { catalogApiRef, EntityProvider } from '@backstage/plugin-catalog-react';
 import React from 'react';
 import {
   apiDocsConfigRef,
+  apiDocsPlugin,
   ApiExplorerPage,
   defaultDefinitionWidgets,
   EntityApiDefinitionCard,
 } from '../src';
 import asyncapiApiEntity from './asyncapi-example-api.yaml';
 import graphqlApiEntity from './graphql-example-api.yaml';
+import invalidLanguageApiEntity from './invalid-language-example-api.yaml';
 import openapiApiEntity from './openapi-example-api.yaml';
 import otherApiEntity from './other-example-api.yaml';
-import { Content, Header, Page } from '@backstage/core-components';
+import trpcApiEntity from './trpc-example-api.yaml';
 
 const mockEntities = [
   openapiApiEntity,
   asyncapiApiEntity,
   graphqlApiEntity,
+  invalidLanguageApiEntity,
   otherApiEntity,
+  trpcApiEntity,
 ] as unknown as Entity[];
 
 createDevApp()
+  .registerPlugin(apiDocsPlugin)
   .registerApi({
     api: catalogApiRef,
     deps: {},
@@ -48,8 +55,8 @@ createDevApp()
             items: mockEntities.slice(),
           };
         },
-        async getEntityByName(name: string) {
-          return mockEntities.find(e => e.metadata.name === name);
+        async getEntityByRef(ref: string) {
+          return mockEntities.find(e => e.metadata.name === ref);
         },
       } as unknown as typeof catalogApiRef.T),
   })
@@ -65,6 +72,7 @@ createDevApp()
       };
     },
   })
+  .addPage({ element: <CatalogEntityPage /> })
   .addPage({ title: 'API Explorer', element: <ApiExplorerPage /> })
   .addPage({
     title: 'OpenAPI',
@@ -106,12 +114,38 @@ createDevApp()
     ),
   })
   .addPage({
+    title: 'Invalid Language',
+    element: (
+      <Page themeId="home">
+        <Header title="Invalid Language" />
+        <Content>
+          <EntityProvider entity={invalidLanguageApiEntity as any as Entity}>
+            <EntityApiDefinitionCard />
+          </EntityProvider>
+        </Content>
+      </Page>
+    ),
+  })
+  .addPage({
     title: 'Other',
     element: (
       <Page themeId="home">
         <Header title="Other" />
         <Content>
           <EntityProvider entity={otherApiEntity as any as Entity}>
+            <EntityApiDefinitionCard />
+          </EntityProvider>
+        </Content>
+      </Page>
+    ),
+  })
+  .addPage({
+    title: 'tRPC',
+    element: (
+      <Page themeId="home">
+        <Header title="tRPC" />
+        <Content>
+          <EntityProvider entity={trpcApiEntity as any as Entity}>
             <EntityApiDefinitionCard />
           </EntityProvider>
         </Content>

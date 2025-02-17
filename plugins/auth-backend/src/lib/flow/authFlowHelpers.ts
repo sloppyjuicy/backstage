@@ -24,6 +24,10 @@ export const safelyEncodeURIComponent = (value: string) => {
   return encodeURIComponent(value).replace(/'/g, '%27');
 };
 
+/**
+ * @public
+ * @deprecated Use `sendWebMessageResponse` from `@backstage/plugin-auth-node` instead
+ */
 export const postMessageResponse = (
   res: express.Response,
   appOrigin: string,
@@ -58,7 +62,7 @@ export const postMessageResponse = (
     (window.opener || window.parent).postMessage(JSON.parse(authResponse), origin);
     setTimeout(() => {
       window.close();
-    }, 100); // same as the interval of the core-api lib/loginPopup.ts (to address race conditions)
+    }, 100); // same as the interval of the core-app-api lib/loginPopup.ts (to address race conditions)
   `;
   const hash = crypto.createHash('sha256').update(script).digest('base64');
 
@@ -68,6 +72,10 @@ export const postMessageResponse = (
   res.end(`<html><body><script>${script}</script></body></html>`);
 };
 
+/**
+ * @public
+ * @deprecated Use inline logic to check that the `X-Requested-With` header is set to `'XMLHttpRequest'` instead.
+ */
 export const ensuresXRequestedWith = (req: express.Request) => {
   const requiredHeader = req.header('X-Requested-With');
   if (!requiredHeader || requiredHeader !== 'XMLHttpRequest') {

@@ -14,18 +14,31 @@
  * limitations under the License.
  */
 
-import { BackstageTheme } from '@backstage/theme';
-import { Button, IconButton, useMediaQuery } from '@material-ui/core';
+import Button from '@material-ui/core/Button';
+import IconButton from '@material-ui/core/IconButton';
+import useMediaQuery from '@material-ui/core/useMediaQuery';
 import React from 'react';
 import { Link as RouterLink, LinkProps } from 'react-router-dom';
 import AddCircleOutline from '@material-ui/icons/AddCircleOutline';
+import { Theme } from '@material-ui/core/styles';
 
-type CreateButtonProps = {
+/**
+ * Properties for {@link CreateButton}
+ *
+ * @public
+ */
+export type CreateButtonProps = {
   title: string;
 } & Partial<Pick<LinkProps, 'to'>>;
 
-export const CreateButton = ({ title, to }: CreateButtonProps) => {
-  const isXSScreen = useMediaQuery<BackstageTheme>(theme =>
+/**
+ * Responsive Button giving consistent UX for creation of different things
+ *
+ * @public
+ */
+export function CreateButton(props: CreateButtonProps) {
+  const { title, to } = props;
+  const isXSScreen = useMediaQuery<Theme>(theme =>
     theme.breakpoints.down('xs'),
   );
 
@@ -48,4 +61,4 @@ export const CreateButton = ({ title, to }: CreateButtonProps) => {
       {title}
     </Button>
   );
-};
+}
