@@ -18,76 +18,206 @@ import React from 'react';
 import * as d3Zoom from 'd3-zoom';
 import * as d3Selection from 'd3-selection';
 import useTheme from '@material-ui/core/styles/useTheme';
-import dagre from 'dagre';
+import dagre from '@dagrejs/dagre';
 import debounce from 'lodash/debounce';
-import { BackstageTheme } from '@backstage/theme';
-import {
-  DependencyEdge,
-  DependencyNode,
-  Direction,
-  Alignment,
-  Ranker,
-  RenderNodeFunction,
-  RenderLabelFunction,
-  GraphEdge,
-  GraphNode,
-  LabelPosition,
-} from './types';
+import { DependencyGraphTypes as Types } from './types';
 import { Node } from './Node';
-import { Edge } from './Edge';
+import { Edge, GraphEdge } from './Edge';
 import { ARROW_MARKER_ID } from './constants';
 
-export type DependencyGraphProps = React.SVGProps<SVGSVGElement> & {
-  edges: DependencyEdge[];
-  nodes: DependencyNode[];
-  direction?: Direction;
-  align?: Alignment;
+/**
+ * Properties of {@link DependencyGraph}
+ *
+ * @public
+ * @remarks
+ * `<NodeData>` and `<EdgeData>` are useful when rendering custom or edge labels
+ */
+export interface DependencyGraphProps<NodeData, EdgeData>
+  extends React.SVGProps<SVGSVGElement> {
+  /**
+   * Edges of graph
+   */
+  edges: Types.DependencyEdge<EdgeData>[];
+  /**
+   * Nodes of Graph
+   */
+  nodes: Types.DependencyNode<NodeData>[];
+  /**
+   * Graph {@link DependencyGraphTypes.Direction | direction}
+   *
+   * @remarks
+   *
+   * Default: `DependencyGraphTypes.Direction.TOP_BOTTOM`
+   */
+  direction?: Types.Direction;
+  /**
+   * Node {@link DependencyGraphTypes.Alignment | alignment}
+   */
+  align?: Types.Alignment;
+  /**
+   * Margin between nodes on each rank
+   *
+   * @remarks
+   *
+   * Default: 50
+   */
   nodeMargin?: number;
+  /**
+   * Margin between edges
+   *
+   * @remarks
+   *
+   * Default: 10
+   */
   edgeMargin?: number;
+  /**
+   * Margin between each rank
+   *
+   * @remarks
+   *
+   * Default: 50
+   */
   rankMargin?: number;
+  /**
+   * Margin on left and right of whole graph
+   *
+   * @remarks
+   *
+   * Default: 0
+   */
   paddingX?: number;
+  /**
+   * Margin on top and bottom of whole graph
+   *
+   * @remarks
+   *
+   * Default: 0
+   */
   paddingY?: number;
+  /**
+   * Heuristic used to find set of edges that will make graph acyclic
+   */
   acyclicer?: 'greedy';
-  ranker?: Ranker;
-  labelPosition?: LabelPosition;
+  /**
+   * {@link DependencyGraphTypes.Ranker | Algorithm} used to rank nodes
+   *
+   * @remarks
+   *
+   * Default: `DependencyGraphTypes.Ranker.NETWORK_SIMPLEX`
+   */
+  ranker?: Types.Ranker;
+  /**
+   * {@link DependencyGraphTypes.LabelPosition | Position} of label in relation to edge
+   *
+   * @remarks
+   *
+   * Default: `DependencyGraphTypes.LabelPosition.RIGHT`
+   */
+  labelPosition?: Types.LabelPosition;
+  /**
+   * How much to move label away from edge
+   *
+   * @remarks
+   *
+   * Applies only when {@link DependencyGraphProps.labelPosition} is `DependencyGraphTypes.LabelPosition.LEFT` or
+   * `DependencyGraphTypes.LabelPosition.RIGHT`
+   */
   labelOffset?: number;
+  /**
+   * Minimum number of ranks to keep between connected nodes
+   */
   edgeRanks?: number;
+  /**
+   * Weight applied to edges in graph
+   */
   edgeWeight?: number;
-  renderNode?: RenderNodeFunction;
-  renderLabel?: RenderLabelFunction;
-  defs?: SVGDefsElement | SVGDefsElement[];
-};
+  /**
+   * Custom node rendering component
+   */
+  renderNode?: Types.RenderNodeFunction<NodeData>;
+  /**
+   * Custom label rendering component
+   */
+  renderLabel?: Types.RenderLabelFunction<EdgeData>;
+  /**
+   * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Element/defs | Defs} shared by rendered SVG to be used by
+   * {@link DependencyGraphProps.renderNode} and/or {@link DependencyGraphProps.renderLabel}
+   */
+  defs?: JSX.Element | JSX.Element[];
+  /**
+   * Controls zoom behavior of graph
+   *
+   * @remarks
+   *
+   * Default: `enabled`
+   */
+  zoom?: 'enabled' | 'disabled' | 'enable-on-click';
+  /**
+   * A factory for curve generators addressing both lines and areas.
+   *
+   * @remarks
+   *
+   * Default: 'curveMonotoneX'
+   */
+  curve?: 'curveStepBefore' | 'curveMonotoneX';
+  /**
+   * Controls if the arrow heads should be rendered or not.
+   *
+   * Default: false
+   */
+  showArrowHeads?: boolean;
+  /**
+   * Controls if the graph should be contained or grow
+   *
+   * @remarks
+   *
+   * Default: 'grow'
+   */
+  fit?: 'grow' | 'contain';
+}
 
 const WORKSPACE_ID = 'workspace';
 
-export function DependencyGraph({
-  edges,
-  nodes,
-  renderNode,
-  direction = Direction.TOP_BOTTOM,
-  align,
-  nodeMargin = 50,
-  edgeMargin = 10,
-  rankMargin = 50,
-  paddingX = 0,
-  paddingY = 0,
-  acyclicer,
-  ranker = Ranker.NETWORK_SIMPLEX,
-  labelPosition = LabelPosition.RIGHT,
-  labelOffset = 10,
-  edgeRanks = 1,
-  edgeWeight = 1,
-  renderLabel,
-  defs,
-  ...svgProps
-}: DependencyGraphProps) {
-  const theme: BackstageTheme = useTheme();
+/**
+ * Graph component used to visualize relations between entities
+ *
+ * @public
+ */
+export function DependencyGraph<NodeData, EdgeData>(
+  props: DependencyGraphProps<NodeData, EdgeData>,
+) {
+  const {
+    edges,
+    nodes,
+    renderNode,
+    direction = Types.Direction.TOP_BOTTOM,
+    align,
+    nodeMargin = 50,
+    edgeMargin = 10,
+    rankMargin = 50,
+    paddingX = 0,
+    paddingY = 0,
+    acyclicer,
+    ranker = Types.Ranker.NETWORK_SIMPLEX,
+    labelPosition = Types.LabelPosition.RIGHT,
+    labelOffset = 10,
+    edgeRanks = 1,
+    edgeWeight = 1,
+    renderLabel,
+    defs,
+    zoom = 'enabled',
+    curve = 'curveMonotoneX',
+    showArrowHeads = false,
+    fit = 'grow',
+    ...svgProps
+  } = props;
+  const theme = useTheme();
   const [containerWidth, setContainerWidth] = React.useState<number>(100);
   const [containerHeight, setContainerHeight] = React.useState<number>(100);
 
-  const graph = React.useRef<dagre.graphlib.Graph<{}>>(
-    new dagre.graphlib.Graph(),
-  );
+  const graph = React.useRef<
+    dagre.graphlib.Graph<Types.DependencyNode<NodeData>>
+  >(new dagre.graphlib.Graph());
   const [graphWidth, setGraphWidth] = React.useState<number>(
     graph.current.graph()?.width || 0,
   );
@@ -99,6 +229,9 @@ export function DependencyGraph({
 
   const maxWidth = Math.max(graphWidth, containerWidth);
   const maxHeight = Math.max(graphHeight, containerHeight);
+  const minHeight = Math.min(graphHeight, containerHeight);
+
+  const scalableHeight = fit === 'grow' ? maxHeight : minHeight;
 
   const containerRef = React.useMemo(
     () =>
@@ -109,28 +242,37 @@ export function DependencyGraph({
         // Set up zooming + panning
         const container = d3Selection.select<SVGSVGElement, null>(node);
         const workspace = d3Selection.select(node.getElementById(WORKSPACE_ID));
-        const zoom = d3Zoom
-          .zoom<SVGSVGElement, null>()
-          .scaleExtent([1, 10])
-          .on('zoom', event => {
-            event.transform.x = Math.min(
-              0,
-              Math.max(
-                event.transform.x,
-                maxWidth - maxWidth * event.transform.k,
-              ),
-            );
-            event.transform.y = Math.min(
-              0,
-              Math.max(
-                event.transform.y,
-                maxHeight - maxHeight * event.transform.k,
-              ),
-            );
-            workspace.attr('transform', event.transform);
-          });
 
-        container.call(zoom);
+        function enableZoom() {
+          container.call(
+            d3Zoom
+              .zoom<SVGSVGElement, null>()
+              .scaleExtent([1, Infinity])
+              .on('zoom', event => {
+                event.transform.x = Math.min(
+                  0,
+                  Math.max(
+                    event.transform.x,
+                    maxWidth - maxWidth * event.transform.k,
+                  ),
+                );
+                event.transform.y = Math.min(
+                  0,
+                  Math.max(
+                    event.transform.y,
+                    maxHeight - maxHeight * event.transform.k,
+                  ),
+                );
+                workspace.attr('transform', event.transform);
+              }),
+          );
+        }
+
+        if (zoom === 'enabled') {
+          enableZoom();
+        } else if (zoom === 'enable-on-click') {
+          container.on('click', () => enableZoom());
+        }
 
         const { width: newContainerWidth, height: newContainerHeight } =
           node.getBoundingClientRect();
@@ -141,7 +283,7 @@ export function DependencyGraph({
           setContainerHeight(newContainerHeight);
         }
       }, 100),
-    [containerHeight, containerWidth, maxWidth, maxHeight],
+    [containerHeight, containerWidth, maxWidth, maxHeight, zoom],
   );
 
   const setNodesAndEdges = React.useCallback(() => {
@@ -171,7 +313,7 @@ export function DependencyGraph({
         .nodes()
         .find(nodeId => node.id === nodeId);
 
-      if (existingNode) {
+      if (existingNode && graph.current.node(existingNode)) {
         const { width, height, x, y } = graph.current.node(existingNode);
         graph.current.setNode(existingNode, { ...node, width, height, x, y });
       } else {
@@ -244,13 +386,13 @@ export function DependencyGraph({
     updateGraph,
   ]);
 
-  function setNode(id: string, node: DependencyNode) {
+  function setNode(id: string, node: Types.DependencyNode<NodeData>) {
     graph.current.setNode(id, node);
     updateGraph();
     return graph.current;
   }
 
-  function setEdge(id: dagre.Edge, edge: DependencyEdge) {
+  function setEdge(id: dagre.Edge, edge: Types.DependencyEdge<EdgeData>) {
     graph.current.setEdge(id, edge);
     updateGraph();
     return graph.current;
@@ -261,7 +403,7 @@ export function DependencyGraph({
       ref={containerRef}
       {...svgProps}
       width="100%"
-      height={maxHeight}
+      height={scalableHeight}
       viewBox={`0 0 ${maxWidth} ${maxHeight}`}
     >
       <defs>
@@ -291,7 +433,7 @@ export function DependencyGraph({
           viewBox={`0 0 ${graphWidth} ${graphHeight}`}
         >
           {graphEdges.map(e => {
-            const edge = graph.current.edge(e) as GraphEdge;
+            const edge = graph.current.edge(e) as GraphEdge<EdgeData>;
             if (!edge) return null;
             return (
               <Edge
@@ -300,11 +442,13 @@ export function DependencyGraph({
                 setEdge={setEdge}
                 render={renderLabel}
                 edge={edge}
+                curve={curve}
+                showArrowHeads={showArrowHeads}
               />
             );
           })}
           {graphNodes.map((id: string) => {
-            const node = graph.current.node(id) as GraphNode;
+            const node = graph.current.node(id);
             if (!node) return null;
             return (
               <Node

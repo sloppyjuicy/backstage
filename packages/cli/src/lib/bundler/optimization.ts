@@ -14,28 +14,36 @@
  * limitations under the License.
  */
 
-import { WebpackOptionsNormalized, WebpackPluginInstance } from 'webpack';
-import TerserPlugin from 'terser-webpack-plugin';
+import { WebpackOptionsNormalized } from 'webpack';
 import { BundlingOptions } from './types';
-import { isParallelDefault } from '../parallel';
+
+const { EsbuildPlugin } = require('esbuild-loader');
 
 export const optimization = (
   options: BundlingOptions,
 ): WebpackOptionsNormalized['optimization'] => {
-  const { isDev } = options;
+  const { isDev, rspack } = options;
+
+  const MinifyPlugin = rspack
+    ? rspack.SwcJsMinimizerRspackPlugin
+    : EsbuildPlugin;
 
   return {
     minimize: !isDev,
-    // Only configure when parallel is explicitly overriden from the default
-    ...(!isParallelDefault(options.parallel)
-      ? {
-          minimizer: [
-            new TerserPlugin({
-              parallel: options.parallel,
-            }) as unknown as WebpackPluginInstance,
-          ],
-        }
-      : {}),
+    minimizer: [
+      new MinifyPlugin({
+        target: 'ES2022',
+        format: 'iife',
+        exclude: 'remoteEntry.js',
+      }),
+      // Avoid iife wrapping of module federation remote entry as it breaks the variable assignment
+      new MinifyPlugin({
+        target: 'ES2022',
+        format: undefined,
+        include: 'remoteEntry.js',
+      }),
+      rspack && new rspack.LightningCssMinimizerRspackPlugin(),
+    ],
     runtimeChunk: 'single',
     splitChunks: {
       automaticNameDelimiter: '-',
@@ -45,11 +53,15 @@ export const optimization = (
         // enough, if they're smaller they end up in the main
         packages: {
           chunks: 'initial',
-          test: /[\\/]node_modules[\\/]/,
+          test(module: any) {
+            return Boolean(
+              module?.resource?.match(/[\\/]node_modules[\\/](.*?)([\\/]|$)/),
+            );
+          },
           name(module: any) {
             // get the name. E.g. node_modules/packageName/not/this/part.js
             // or node_modules/packageName
-            const packageName = module.context.match(
+            const packageName = module.resource.match(
               /[\\/]node_modules[\\/](.*?)([\\/]|$)/,
             )[1];
 
@@ -62,9 +74,11 @@ export const optimization = (
           priority: 10,
           minSize: 100000,
           minChunks: 1,
-          maxAsyncRequests: Infinity,
-          maxInitialRequests: Infinity,
-        } as any, // filename is not included in type, but we need it
+          ...(!rspack && {
+            maxAsyncRequests: Infinity,
+            maxInitialRequests: Infinity,
+          }),
+        }, // filename is not included in type, but we need it
         // Group together the smallest modules
         vendor: {
           chunks: 'initial',

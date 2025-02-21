@@ -13,12 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-import React, { PropsWithChildren } from 'react';
-import classNames from 'classnames';
+import Box from '@material-ui/core/Box';
+import Grid from '@material-ui/core/Grid';
+import IconButton from '@material-ui/core/IconButton';
+import { makeStyles } from '@material-ui/core/styles';
 import ChevronLeftIcon from '@material-ui/icons/ChevronLeft';
 import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import { Grid, IconButton, makeStyles, Theme } from '@material-ui/core';
+import classNames from 'classnames';
+import React, { PropsWithChildren } from 'react';
 
 const generateGradientStops = (themeType: 'dark' | 'light') => {
   // 97% corresponds to the theme.palette.background.default for the light theme
@@ -54,52 +56,67 @@ type Props = {
   minScrollDistance?: number; // limits how small steps the scroll can take in px
 };
 
-const useStyles = makeStyles<Theme>(theme => ({
-  root: {
-    position: 'relative',
-    display: 'flex',
-    flexFlow: 'row nowrap',
-    alignItems: 'center',
-  },
-  container: {
-    overflow: 'auto',
-    scrollbarWidth: 0 as any, // hide in FF
-    '&::-webkit-scrollbar': {
-      display: 'none', // hide in Chrome
+/** @public */
+export type HorizontalScrollGridClassKey =
+  | 'root'
+  | 'container'
+  | 'fade'
+  | 'fadeLeft'
+  | 'fadeRight'
+  | 'fadeHidden'
+  | 'button'
+  | 'buttonLeft'
+  | 'buttonRight';
+
+const useStyles = makeStyles(
+  theme => ({
+    root: {
+      position: 'relative',
+      display: 'flex',
+      flexFlow: 'row nowrap',
+      alignItems: 'center',
     },
-  },
-  fade: {
-    position: 'absolute',
-    width: fadeSize,
-    height: `calc(100% + ${fadePadding}px)`,
-    transition: 'opacity 300ms',
-    pointerEvents: 'none',
-  },
-  fadeLeft: {
-    left: -fadePadding,
-    background: `linear-gradient(90deg, ${generateGradientStops(
-      theme.palette.type,
-    )})`,
-  },
-  fadeRight: {
-    right: -fadePadding,
-    background: `linear-gradient(270deg, ${generateGradientStops(
-      theme.palette.type,
-    )})`,
-  },
-  fadeHidden: {
-    opacity: 0,
-  },
-  button: {
-    position: 'absolute',
-  },
-  buttonLeft: {
-    left: -theme.spacing(2),
-  },
-  buttonRight: {
-    right: -theme.spacing(2),
-  },
-}));
+    container: {
+      overflow: 'auto',
+      scrollbarWidth: 0 as any, // hide in FF
+      '&::-webkit-scrollbar': {
+        display: 'none', // hide in Chrome
+      },
+    },
+    fade: {
+      position: 'absolute',
+      width: fadeSize,
+      height: `calc(100% + ${fadePadding}px)`,
+      transition: 'opacity 300ms',
+      pointerEvents: 'none',
+    },
+    fadeLeft: {
+      left: -fadePadding,
+      background: `linear-gradient(90deg, ${generateGradientStops(
+        theme.palette.type,
+      )})`,
+    },
+    fadeRight: {
+      right: -fadePadding,
+      background: `linear-gradient(270deg, ${generateGradientStops(
+        theme.palette.type,
+      )})`,
+    },
+    fadeHidden: {
+      opacity: 0,
+    },
+    button: {
+      position: 'absolute',
+    },
+    buttonLeft: {
+      left: -theme.spacing(2),
+    },
+    buttonRight: {
+      right: -theme.spacing(2),
+    },
+  }),
+  { name: 'BackstageHorizontalScrollGrid' },
+);
 
 // Returns scroll distance from left and right
 function useScrollDistance(
@@ -138,7 +155,7 @@ function useScrollDistance(
   return [scrollLeft, scrollRight];
 }
 
-// Used to animate scrolling. Returns a single setScrollTarger function, when called with e.g. 200,
+// Used to animate scrolling. Returns a single setScrollTarget function, when called with e.g. 200,
 // the element pointer to by the ref will be scrolled 200px forwards over time.
 function useSmoothScroll(
   ref: React.MutableRefObject<HTMLElement | undefined>,
@@ -152,7 +169,7 @@ function useSmoothScroll(
       return;
     }
 
-    const startTime = performance.now();
+    const startTime = window.performance.now();
     const id = requestAnimationFrame(frameTime => {
       if (!ref.current) {
         return;
@@ -181,7 +198,13 @@ function useSmoothScroll(
   return setScrollTarget;
 }
 
-export const HorizontalScrollGrid = (props: PropsWithChildren<Props>) => {
+/**
+ * Horizontal scrollable component with arrows to navigate
+ *
+ * @public
+ *
+ */
+export function HorizontalScrollGrid(props: PropsWithChildren<Props>) {
   const {
     scrollStep = 100,
     scrollSpeed = 50,
@@ -204,7 +227,7 @@ export const HorizontalScrollGrid = (props: PropsWithChildren<Props>) => {
   };
 
   return (
-    <div {...otherProps} className={classes.root}>
+    <Box {...otherProps} className={classes.root}>
       <Grid
         container
         direction="row"
@@ -214,12 +237,12 @@ export const HorizontalScrollGrid = (props: PropsWithChildren<Props>) => {
       >
         {children}
       </Grid>
-      <div
+      <Box
         className={classNames(classes.fade, classes.fadeLeft, {
           [classes.fadeHidden]: scrollLeft === 0,
         })}
       />
-      <div
+      <Box
         className={classNames(classes.fade, classes.fadeRight, {
           [classes.fadeHidden]: scrollRight === 0,
         })}
@@ -242,6 +265,6 @@ export const HorizontalScrollGrid = (props: PropsWithChildren<Props>) => {
           <ChevronRightIcon />
         </IconButton>
       )}
-    </div>
+    </Box>
   );
-};
+}

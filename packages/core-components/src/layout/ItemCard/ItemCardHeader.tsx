@@ -14,28 +14,33 @@
  * limitations under the License.
  */
 
+import Box from '@material-ui/core/Box';
 import {
   createStyles,
   makeStyles,
   Theme,
-  Typography,
   WithStyles,
-} from '@material-ui/core';
+} from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
 import React from 'react';
+
+/** @public */
+export type ItemCardHeaderClassKey = 'root';
 
 const styles = (theme: Theme) =>
   createStyles({
     root: {
       color: theme.palette.common.white,
       padding: theme.spacing(2, 2, 3),
-      backgroundImage: 'linear-gradient(-137deg,  #4BB8A5 0%,  #187656 100%)',
+      backgroundImage: theme.getPageTheme({ themeId: 'card' }).backgroundImage,
       backgroundPosition: 0,
       backgroundSize: 'inherit',
     },
   });
 
-const useStyles = makeStyles(styles);
+const useStyles = makeStyles(styles, { name: 'BackstageItemCardHeader' });
 
+/** @public */
 export type ItemCardHeaderProps = Partial<WithStyles<typeof styles>> & {
   /**
    * A large title to show in the header, providing the main heading.
@@ -64,19 +69,20 @@ export type ItemCardHeaderProps = Partial<WithStyles<typeof styles>> & {
  * A simple card header, rendering a default look for "item cards" - cards that
  * are arranged in a grid for users to select among several options.
  *
- * This component expects to be placed within a MUI <CardMedia>.
+ * @remarks
+ * This component expects to be placed within a Material UI `<CardMedia>`.
  *
  * Styles for the header can be overridden using the `classes` prop, e.g.:
  *
- * <code>
- *   <ItemCardHeader title="Hello" classes={{ root: myClassName }} />
- * </code>
+ * `<ItemCardHeader title="Hello" classes={{ root: myClassName }} />`
+ *
+ * @public
  */
-export const ItemCardHeader = (props: ItemCardHeaderProps) => {
+export function ItemCardHeader(props: ItemCardHeaderProps) {
   const { title, subtitle, children } = props;
   const classes = useStyles(props);
   return (
-    <div className={classes.root}>
+    <Box className={classes.root}>
       {subtitle && (
         <Typography variant="subtitle2" component="h3">
           {subtitle}
@@ -88,6 +94,6 @@ export const ItemCardHeader = (props: ItemCardHeaderProps) => {
         </Typography>
       )}
       {children}
-    </div>
+    </Box>
   );
-};
+}

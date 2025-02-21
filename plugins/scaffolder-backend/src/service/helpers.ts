@@ -14,13 +14,18 @@
  * limitations under the License.
  */
 
+import { CatalogApi } from '@backstage/catalog-client';
 import {
+  ANNOTATION_LOCATION,
+  ANNOTATION_SOURCE_LOCATION,
+  CompoundEntityRef,
   Entity,
-  LOCATION_ANNOTATION,
-  parseLocationReference,
-  SOURCE_LOCATION_ANNOTATION,
+  parseLocationRef,
+  stringifyEntityRef,
 } from '@backstage/catalog-model';
 import { Config } from '@backstage/config';
+import { assertError, InputError, NotFoundError } from '@backstage/errors';
+import { TemplateEntityV1beta3 } from '@backstage/plugin-scaffolder-common';
 import fs from 'fs-extra';
 import os from 'os';
 import { Logger } from 'winston';
@@ -39,6 +44,7 @@ export async function getWorkingDirectory(
     await fs.access(workingDirectory, fs.constants.F_OK | fs.constants.W_OK);
     logger.info(`using working directory: ${workingDirectory}`);
   } catch (err) {
+    assertError(err);
     logger.error(
       `working directory ${workingDirectory} ${
         err.code === 'ENOENT' ? 'does not exist' : 'is not writable'
@@ -57,15 +63,15 @@ export async function getWorkingDirectory(
  * For file locations this will return a `file://` URL.
  */
 export function getEntityBaseUrl(entity: Entity): string | undefined {
-  let location = entity.metadata.annotations?.[SOURCE_LOCATION_ANNOTATION];
+  let location = entity.metadata.annotations?.[ANNOTATION_SOURCE_LOCATION];
   if (!location) {
-    location = entity.metadata.annotations?.[LOCATION_ANNOTATION];
+    location = entity.metadata.annotations?.[ANNOTATION_LOCATION];
   }
   if (!location) {
     return undefined;
   }
 
-  const { type, target } = parseLocationReference(location);
+  const { type, target } = parseLocationRef(location);
   if (type === 'url') {
     return target;
   } else if (type === 'file') {
@@ -75,4 +81,70 @@ export function getEntityBaseUrl(entity: Entity): string | undefined {
   // Only url and file location are handled, as we otherwise don't know if
   // what the url is pointing to makes sense to use as a baseUrl
   return undefined;
+}
+
+/**
+ * Will use the provided CatalogApi to go find the given template entity with an additional token.
+ * Returns the matching template, or throws a NotFoundError if no such template existed.
+ */
+export async function findTemplate(options: {
+  entityRef: CompoundEntityRef;
+  token?: string;
+  catalogApi: CatalogApi;
+}): Promise<TemplateEntityV1beta3> {
+  const { entityRef, token, catalogApi } = options;
+
+  if (entityRef.kind.toLocaleLowerCase('en-US') !== 'template') {
+    throw new InputError(`Invalid kind, only 'Template' kind is supported`);
+  }
+
+  const template = await catalogApi.getEntityByRef(entityRef, { token });
+  if (!template) {
+    throw new NotFoundError(
+      `Template ${stringifyEntityRef(entityRef)} not found`,
+    );
+  }
+
+  return template as TemplateEntityV1beta3;
+}
+
+/**
+ * Takes a single unknown parameter and makes sure that it's a single string or
+ * an array of strings, and returns as an array.
+ */
+export function parseStringsParam(
+  param: unknown,
+  paramName: string,
+): string[] | undefined {
+  if (param === undefined) {
+    return undefined;
+  }
+
+  const array = [param].flat();
+  if (array.some(p => typeof p !== 'string')) {
+    throw new InputError(
+      `Invalid ${paramName}, not a string or array of strings`,
+    );
+  }
+
+  return array as string[];
+}
+
+export function parseNumberParam(
+  param: unknown,
+  paramName: string,
+): number[] | undefined {
+  return parseStringsParam(param, paramName)?.map(val => {
+    const ret = Number.parseInt(val, 10);
+    if (isNaN(ret)) {
+      throw new InputError(
+        `Invalid ${paramName} parameter "${val}", expected a number or array of numbers`,
+      );
+    }
+    return ret;
+  });
+}
+
+export function flattenParams<T>(...params: (undefined | T | T[])[]): T[] {
+  return [...params].flat().filter(Boolean) as T[];
 }

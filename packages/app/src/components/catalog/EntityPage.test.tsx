@@ -13,14 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+import { EntityLayout, catalogPlugin } from '@backstage/plugin-catalog';
+import {
+  EntityProvider,
+  starredEntitiesApiRef,
+  MockStarredEntitiesApi,
+  catalogApiRef,
+} from '@backstage/plugin-catalog-react';
+import { permissionApiRef } from '@backstage/plugin-permission-react';
+import {
+  mockApis,
+  renderInTestApp,
+  TestApiProvider,
+} from '@backstage/test-utils';
 import React from 'react';
-import { EntityLayout } from '@backstage/plugin-catalog';
-import { EntityProvider } from '@backstage/plugin-catalog-react';
-import { renderInTestApp } from '@backstage/test-utils';
 import { cicdContent } from './EntityPage';
-import { githubActionsApiRef } from '@backstage/plugin-github-actions';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
 
 describe('EntityPage Test', () => {
   const entity = {
@@ -39,21 +47,18 @@ describe('EntityPage Test', () => {
     },
   };
 
-  const mockedApi = {
-    listWorkflowRuns: jest.fn().mockResolvedValue([]),
-    getWorkflow: jest.fn(),
-    getWorkflowRun: jest.fn(),
-    reRunWorkflow: jest.fn(),
-    listJobsForWorkflowRun: jest.fn(),
-    downloadJobLogsForWorkflowRun: jest.fn(),
-  } as jest.Mocked<typeof githubActionsApiRef.T>;
-
-  const apis = ApiRegistry.with(githubActionsApiRef, mockedApi);
+  const rootRouteRef = catalogPlugin.routes.catalogIndex;
 
   describe('cicdContent', () => {
     it('Should render GitHub Actions View', async () => {
       const rendered = await renderInTestApp(
-        <ApiProvider apis={apis}>
+        <TestApiProvider
+          apis={[
+            [starredEntitiesApiRef, new MockStarredEntitiesApi()],
+            [permissionApiRef, mockApis.permission()],
+            [catalogApiRef, catalogApiMock()],
+          ]}
+        >
           <EntityProvider entity={entity}>
             <EntityLayout>
               <EntityLayout.Route path="/ci-cd" title="CI-CD">
@@ -61,15 +66,19 @@ describe('EntityPage Test', () => {
               </EntityLayout.Route>
             </EntityLayout>
           </EntityProvider>
-        </ApiProvider>,
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/catalog': rootRouteRef,
+          },
+        },
       );
 
       expect(rendered.getByText('ExampleComponent')).toBeInTheDocument();
 
       await expect(
-        rendered.findByText('No Workflow Data'),
+        rendered.findByText('No CI/CD available for this entity'),
       ).resolves.toBeInTheDocument();
-      expect(rendered.getByText('Create new Workflow')).toBeInTheDocument();
     });
   });
 });

@@ -14,34 +14,63 @@
  * limitations under the License.
  */
 
-import {
-  Box,
-  Breadcrumbs as MaterialBreadcrumbs,
-  List,
-  ListItem,
-  Popover,
-  Typography,
-  withStyles,
-} from '@material-ui/core';
+import Box from '@material-ui/core/Box';
+import MaterialBreadcrumbs from '@material-ui/core/Breadcrumbs';
+import List from '@material-ui/core/List';
+import ListItem from '@material-ui/core/ListItem';
+import Popover from '@material-ui/core/Popover';
+import { withStyles } from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
 import React, { ComponentProps, Fragment } from 'react';
 
 type Props = ComponentProps<typeof MaterialBreadcrumbs>;
 
-const ClickableText = withStyles({
-  root: {
-    textDecoration: 'underline',
-    cursor: 'pointer',
-  },
-})(Typography);
+/** @public */
+export type BreadcrumbsClickableTextClassKey = 'root';
 
-const StyledBox = withStyles({
-  root: {
-    textDecoration: 'underline',
-    color: 'inherit',
+const ClickableText = withStyles(
+  {
+    root: {
+      textDecoration: 'underline',
+      cursor: 'pointer',
+    },
   },
-})(Box);
+  { name: 'BackstageBreadcrumbsClickableText' },
+)(Typography);
 
-export const Breadcrumbs = ({ children, ...props }: Props) => {
+/** @public */
+export type BreadcrumbsStyledBoxClassKey = 'root';
+
+const StyledBox = withStyles(
+  {
+    root: {
+      textDecoration: 'underline',
+      color: 'inherit',
+    },
+  },
+  { name: 'BackstageBreadcrumbsStyledBox' },
+)(Box);
+
+/** @public */
+export type BreadcrumbsCurrentPageClassKey = 'root';
+
+const BreadcrumbsCurrentPage = withStyles(
+  {
+    root: {
+      fontStyle: 'italic',
+    },
+  },
+  { name: 'BreadcrumbsCurrentPage' },
+)(Box);
+
+/**
+ * Breadcrumbs component to show navigation hierarchical structure
+ *
+ * @public
+ *
+ */
+export function Breadcrumbs(props: Props) {
+  const { children, ...restProps } = props;
   const [anchorEl, setAnchorEl] = React.useState<HTMLButtonElement | null>(
     null,
   );
@@ -65,13 +94,13 @@ export const Breadcrumbs = ({ children, ...props }: Props) => {
   const open = Boolean(anchorEl);
   return (
     <Fragment>
-      <MaterialBreadcrumbs aria-label="breadcrumb" {...props}>
+      <MaterialBreadcrumbs aria-label="breadcrumb" {...restProps}>
         {childrenArray.length > 1 && <StyledBox clone>{firstPage}</StyledBox>}
         {childrenArray.length > 2 && <StyledBox clone>{secondPage}</StyledBox>}
         {hasHiddenBreadcrumbs && (
           <ClickableText onClick={handleClick}>...</ClickableText>
         )}
-        <Box style={{ fontStyle: 'italic' }}>{currentPage}</Box>
+        <BreadcrumbsCurrentPage>{currentPage}</BreadcrumbsCurrentPage>
       </MaterialBreadcrumbs>
       <Popover
         open={open}
@@ -96,4 +125,4 @@ export const Breadcrumbs = ({ children, ...props }: Props) => {
       </Popover>
     </Fragment>
   );
-};
+}

@@ -20,9 +20,74 @@ export interface Config {
     /**
      * Options for ElasticSearch
      */
-    elasticsearch?:
-      | // elastic = Elastic.co ElasticSearch provider
-      {
+    elasticsearch?: {
+      /**
+       * Prefix to be used for all index creation. Value will be put in front of the index as is.
+       */
+      indexPrefix?: string;
+      /**
+       * Batch size for elastic search indexing tasks. Defaults to 1000.
+       */
+      batchSize?: number;
+      /**
+       * Options for configuring highlight settings
+       * See https://www.elastic.co/guide/en/elasticsearch/reference/7.17/highlighting.html
+       */
+      highlightOptions?: {
+        /**
+         * The size of the highlighted fragment in characters. Defaults to 1000.
+         */
+        fragmentSize?: number;
+        /**
+         * Number of result fragments to extract. Fragments will be concatenated with `fragmentDelimiter`. Defaults to 1.
+         */
+        numFragments?: number;
+        /**
+         * Delimiter string used to concatenate fragments. Defaults to " ... ".
+         */
+        fragmentDelimiter?: string;
+      };
+
+      /** Elasticsearch specific index template bodies */
+      indexTemplates?: Array<{
+        name: string;
+        body: {
+          /**
+           * Array of wildcard (*) expressions used to match the names of data streams and indices during creation.
+           */
+          index_patterns: string[];
+
+          /**
+           * An ordered list of component template names.
+           * Component templates are merged in the order specified,
+           * meaning that the last component template specified has the highest precedence.
+           */
+          composed_of?: string[];
+
+          /**
+           * See available properties of template
+           * https://www.elastic.co/guide/en/elasticsearch/reference/7.15/indices-put-template.html#put-index-template-api-request-body
+           */
+          template?: {
+            [key: string]: unknown;
+          };
+        };
+      }>;
+
+      /** Miscellaneous options for the client */
+      clientOptions?: {
+        ssl?: {
+          /**
+           * If true the server will reject any connection which is not
+           * authorized with the list of supplied CAs.
+           * @default true
+           */
+          rejectUnauthorized?: boolean;
+        };
+      };
+    } & (
+      | {
+          // elastic = Elastic.co ElasticSearch provider
           provider: 'elastic';
 
           /**
@@ -55,6 +120,19 @@ export interface Config {
            * Eg. https://my-es-cluster.eu-west-1.es.amazonaws.com
            */
           node: string;
+
+          /**
+           * The AWS region.
+           * Only needed if using a custom DNS record.
+           */
+          region?: string;
+
+          /**
+           * The AWS service used for request signature.
+           * Either 'es' for "Managed Clusters" or 'aoss' for "Serverless".
+           * Only needed if using a custom DNS record.
+           */
+          service?: 'es' | 'aoss';
         }
 
       /**
@@ -93,17 +171,40 @@ export interface Config {
                  */
                 apiKey: string;
               };
-          /* TODO(kuangp): unsupported until @elastic/elasticsearch@7.14 is released
-        | {
+        }
+
+      /**
+       *  AWS = In house hosting Open Search
+       */
+      | {
+          provider: 'opensearch';
+          /**
+           * Node configuration.
+           * URL/URLS to OpenSearch node to connect to.
+           * Either direct URL like 'https://localhost:9200' or with credentials like 'https://username:password@localhost:9200'
+           */
+          node: string | string[];
 
           /**
-           * Bearer authentication token to connect to the cluster.
-           * See: https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-service-token.html
-           *
-           * @visibility secret
-           *
-          bearer: string;
-        };*/
-        };
+           * Authentication credentials for OpenSearch
+           * If both ApiKey/Bearer token and username+password is provided, tokens take precedence
+           */
+          auth?:
+            | {
+                username: string;
+
+                /**
+                 * @visibility secret
+                 */
+                password: string;
+              }
+            | {
+                /**
+                 * @visibility secret
+                 */
+                apiKey: string;
+              };
+        }
+    );
   };
 }

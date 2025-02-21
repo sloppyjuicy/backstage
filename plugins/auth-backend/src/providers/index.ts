@@ -14,19 +14,45 @@
  * limitations under the License.
  */
 
-export * from './google';
-export * from './microsoft';
-export * from './okta';
-export { factories as defaultAuthProviderFactories } from './factories';
-
-// Export the minimal interface required for implementing a
-// custom Authorization Handler
+export type { AwsAlbResult } from './aws-alb';
+export type { EasyAuthResult } from './azure-easyauth';
 export type {
+  BitbucketOAuthResult,
+  BitbucketPassportProfile,
+} from './bitbucket';
+export type { BitbucketServerOAuthResult } from './bitbucketServer';
+export type {
+  CloudflareAccessClaims,
+  CloudflareAccessGroup,
+  CloudflareAccessResult,
+  CloudflareAccessIdentityProfile,
+} from './cloudflare-access';
+export type { GithubOAuthResult } from './github';
+export type { OAuth2ProxyResult } from './oauth2-proxy';
+export type { OidcAuthResult } from './oidc';
+export type { SamlAuthResult } from './saml';
+export type { GcpIapResult, GcpIapTokenInfo } from './gcp-iap';
+
+export { providers, defaultAuthProviderFactories } from './providers';
+export { createOriginFilter, type ProviderFactories } from './router';
+
+export { createAuthProviderIntegration } from './createAuthProviderIntegration';
+
+export type {
+  AuthProviderConfig,
   AuthProviderRouteHandlers,
-  AuthProviderFactoryOptions,
   AuthProviderFactory,
+  AuthHandler,
+  AuthResolverCatalogUserQuery,
+  AuthResolverContext,
+  AuthHandlerResult,
+  SignInResolver,
+  SignInInfo,
+  CookieConfigurer,
+  StateEncoder,
+  AuthResponse,
+  ProfileInfo,
+  OAuthStartResponse,
 } from './types';
 
-// These types are needed for a postMessage from the login pop-up
-// to the frontend
-export type { AuthResponse, BackstageIdentity, ProfileInfo } from './types';
+export { prepareBackstageIdentityResponse } from './prepareBackstageIdentityResponse';

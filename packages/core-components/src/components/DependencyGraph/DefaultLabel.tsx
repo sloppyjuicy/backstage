@@ -16,16 +16,22 @@
 
 import React from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { BackstageTheme } from '@backstage/theme';
-import { RenderLabelProps } from './types';
+import { DependencyGraphTypes as Types } from './types';
 
-const useStyles = makeStyles((theme: BackstageTheme) => ({
-  text: {
-    fill: theme.palette.textContrast,
-  },
-}));
+/** @public */
+export type DependencyGraphDefaultLabelClassKey = 'text';
 
-export function DefaultLabel({ edge: { label } }: RenderLabelProps) {
+const useStyles = makeStyles(
+  theme => ({
+    text: {
+      fill: theme.palette.textContrast,
+    },
+  }),
+  { name: 'BackstageDependencyGraphDefaultLabel' },
+);
+
+/** @public */
+export function DefaultLabel({ edge: { label } }: Types.RenderLabelProps) {
   const classes = useStyles();
   return (
     <text className={classes.text} textAnchor="middle">

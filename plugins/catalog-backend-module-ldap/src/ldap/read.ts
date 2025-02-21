@@ -14,22 +14,33 @@
  * limitations under the License.
  */
 
-import { GroupEntity, UserEntity } from '@backstage/catalog-model';
+import {
+  GroupEntity,
+  stringifyEntityRef,
+  UserEntity,
+} from '@backstage/catalog-model';
 import { SearchEntry } from 'ldapjs';
 import lodashSet from 'lodash/set';
+import cloneDeep from 'lodash/cloneDeep';
 import { buildOrgHierarchy } from './org';
 import { LdapClient } from './client';
-import { GroupConfig, UserConfig } from './config';
+import { GroupConfig, UserConfig, VendorConfig } from './config';
 import {
   LDAP_DN_ANNOTATION,
   LDAP_RDN_ANNOTATION,
   LDAP_UUID_ANNOTATION,
 } from './constants';
 import { LdapVendor } from './vendors';
-import { Logger } from 'winston';
 import { GroupTransformer, UserTransformer } from './types';
 import { mapStringAttr } from './util';
+import { LoggerService } from '@backstage/backend-plugin-api';
 
+/**
+ * The default implementation of the transformation from an LDAP entry to a
+ * User entity.
+ *
+ * @public
+ */
 export async function defaultUserTransformer(
   vendor: LdapVendor,
   config: UserConfig,
@@ -38,7 +49,7 @@ export async function defaultUserTransformer(
   const { set, map } = config;
 
   const entity: UserEntity = {
-    apiVersion: 'backstage.io/v1alpha1',
+    apiVersion: 'backstage.io/v1beta1',
     kind: 'User',
     metadata: {
       name: '',
@@ -52,7 +63,7 @@ export async function defaultUserTransformer(
 
   if (set) {
     for (const [path, value] of Object.entries(set)) {
-      lodashSet(entity, path, value);
+      lodashSet(entity, path, cloneDeep(value));
     }
   }
 
@@ -87,45 +98,59 @@ export async function defaultUserTransformer(
 /**
  * Reads users out of an LDAP provider.
  *
- * @param client The LDAP client
- * @param config The user data configuration
- * @param opts
+ * @param client - The LDAP client
+ * @param config - The user data configuration
+ * @param opts - Additional options
  */
 export async function readLdapUsers(
   client: LdapClient,
-  config: UserConfig,
+  userConfig: UserConfig[],
+  vendorConfig: VendorConfig | undefined,
   opts?: { transformer?: UserTransformer },
 ): Promise<{
   users: UserEntity[]; // With all relations empty
   userMemberOf: Map<string, Set<string>>; // DN -> DN or UUID of groups
 }> {
-  const { dn, options, map } = config;
-  const vendor = await client.getVendor();
-
+  if (userConfig.length === 0) {
+    return { users: [], userMemberOf: new Map() };
+  }
   const entities: UserEntity[] = [];
   const userMemberOf: Map<string, Set<string>> = new Map();
-
+  const vendorDefaults = await client.getVendor();
+  const vendor: LdapVendor = {
+    dnAttributeName:
+      vendorConfig?.dnAttributeName ?? vendorDefaults.dnAttributeName,
+    uuidAttributeName:
+      vendorConfig?.uuidAttributeName ?? vendorDefaults.uuidAttributeName,
+    decodeStringAttribute: vendorDefaults.decodeStringAttribute,
+  };
   const transformer = opts?.transformer ?? defaultUserTransformer;
 
-  const entries = await client.search(dn, options);
+  for (const cfg of userConfig) {
+    const { dn, options, map } = cfg;
+    await client.searchStreaming(dn, options, async user => {
+      const entity = await transformer(vendor, cfg, user);
 
-  for (const user of entries) {
-    const entity = await transformer(vendor, config, user);
+      if (!entity) {
+        return;
+      }
 
-    if (!entity) {
-      continue;
-    }
-
-    mapReferencesAttr(user, vendor, map.memberOf, (myDn, vs) => {
-      ensureItems(userMemberOf, myDn, vs);
+      mapReferencesAttr(user, vendor, map.memberOf, (myDn, vs) => {
+        ensureItems(userMemberOf, myDn, vs);
+      });
+      entities.push(entity);
     });
-
-    entities.push(entity);
   }
 
   return { users: entities, userMemberOf };
 }
 
+/**
+ * The default implementation of the transformation from an LDAP entry to a
+ * Group entity.
+ *
+ * @public
+ */
 export async function defaultGroupTransformer(
   vendor: LdapVendor,
   config: GroupConfig,
@@ -133,7 +158,7 @@ export async function defaultGroupTransformer(
 ): Promise<GroupEntity | undefined> {
   const { set, map } = config;
   const entity: GroupEntity = {
-    apiVersion: 'backstage.io/v1alpha1',
+    apiVersion: 'backstage.io/v1beta1',
     kind: 'Group',
     metadata: {
       name: '',
@@ -148,7 +173,7 @@ export async function defaultGroupTransformer(
 
   if (set) {
     for (const [path, value] of Object.entries(set)) {
-      lodashSet(entity, path, value);
+      lodashSet(entity, path, cloneDeep(value));
     }
   }
 
@@ -186,13 +211,14 @@ export async function defaultGroupTransformer(
 /**
  * Reads groups out of an LDAP provider.
  *
- * @param client The LDAP client
- * @param config The group data configuration
- * @param opts
+ * @param client - The LDAP client
+ * @param config - The group data configuration
+ * @param opts - Additional options
  */
 export async function readLdapGroups(
   client: LdapClient,
-  config: GroupConfig,
+  groupConfig: GroupConfig[],
+  vendorConfig: VendorConfig | undefined,
   opts?: {
     transformer?: GroupTransformer;
   },
@@ -201,32 +227,47 @@ export async function readLdapGroups(
   groupMemberOf: Map<string, Set<string>>; // DN -> DN or UUID of groups
   groupMember: Map<string, Set<string>>; // DN -> DN or UUID of groups & users
 }> {
+  if (groupConfig.length === 0) {
+    return { groups: [], groupMemberOf: new Map(), groupMember: new Map() };
+  }
   const groups: GroupEntity[] = [];
   const groupMemberOf: Map<string, Set<string>> = new Map();
   const groupMember: Map<string, Set<string>> = new Map();
 
-  const { dn, map, options } = config;
-  const vendor = await client.getVendor();
+  const vendorDefaults = await client.getVendor();
+  const vendor: LdapVendor = {
+    dnAttributeName:
+      vendorConfig?.dnAttributeName ?? vendorDefaults.dnAttributeName,
+    uuidAttributeName:
+      vendorConfig?.uuidAttributeName ?? vendorDefaults.uuidAttributeName,
+    decodeStringAttribute: vendorDefaults.decodeStringAttribute,
+  };
 
   const transformer = opts?.transformer ?? defaultGroupTransformer;
 
-  const entries = await client.search(dn, options);
+  for (const cfg of groupConfig) {
+    const { dn, map, options } = cfg;
 
-  for (const group of entries) {
-    const entity = await transformer(vendor, config, group);
+    await client.searchStreaming(dn, options, async entry => {
+      if (!entry) {
+        return;
+      }
 
-    if (!entity) {
-      continue;
-    }
+      const entity = await transformer(vendor, cfg, entry);
 
-    mapReferencesAttr(group, vendor, map.memberOf, (myDn, vs) => {
-      ensureItems(groupMemberOf, myDn, vs);
+      if (!entity) {
+        return;
+      }
+
+      mapReferencesAttr(entry, vendor, map.memberOf, (myDn, vs) => {
+        ensureItems(groupMemberOf, myDn, vs);
+      });
+      mapReferencesAttr(entry, vendor, map.members, (myDn, vs) => {
+        ensureItems(groupMember, myDn, vs);
+      });
+
+      groups.push(entity);
     });
-    mapReferencesAttr(group, vendor, map.members, (myDn, vs) => {
-      ensureItems(groupMember, myDn, vs);
-    });
-
-    groups.push(entity);
   }
 
   return {
@@ -239,33 +280,42 @@ export async function readLdapGroups(
 /**
  * Reads users and groups out of an LDAP provider.
  *
- * Invokes the above "raw" read functions and stitches together the results
- * with all relations etc filled in.
+ * @param client - The LDAP client
+ * @param userConfig - The user data configuration
+ * @param groupConfig - The group data configuration
+ * @param options - Additional options
  *
- * @param client The LDAP client
- * @param userConfig The user data configuration
- * @param groupConfig The group data configuration
- * @param options
+ * @public
  */
 export async function readLdapOrg(
   client: LdapClient,
-  userConfig: UserConfig,
-  groupConfig: GroupConfig,
+  userConfig: UserConfig[],
+  groupConfig: GroupConfig[],
+  vendorConfig: VendorConfig | undefined,
   options: {
     groupTransformer?: GroupTransformer;
     userTransformer?: UserTransformer;
-    logger: Logger;
+    logger: LoggerService;
   },
 ): Promise<{
   users: UserEntity[];
   groups: GroupEntity[];
 }> {
-  const { users, userMemberOf } = await readLdapUsers(client, userConfig, {
-    transformer: options?.userTransformer,
-  });
+  // Invokes the above "raw" read functions and stitches together the results
+  // with all relations etc filled in.
+
+  const { users, userMemberOf } = await readLdapUsers(
+    client,
+    userConfig,
+    vendorConfig,
+    {
+      transformer: options?.userTransformer,
+    },
+  );
   const { groups, groupMemberOf, groupMember } = await readLdapGroups(
     client,
     groupConfig,
+    vendorConfig,
     { transformer: options?.groupTransformer },
   );
 
@@ -317,17 +367,31 @@ function ensureItems(
 }
 
 /**
+ * Helper function which dual searches the user/group maps first for original value, then for lowercased value.
+ * @param map - The map of DN's user or group as the key usually multicased.
+ * @param searchValue - The DN/memberOf search criteria which could potentially not match the map DN by case.
+ * @returns The value/result of the search criteria dual searching.
+ */
+function getValueFromMapWithInsensitiveKey(
+  map: Map<string, any>,
+  searchValue: string,
+) {
+  const result = map.get(searchValue);
+  return result ? result : map.get(searchValue.toLocaleLowerCase('en-US'));
+}
+
+/**
  * Takes groups and entities with empty relations, and fills in the various
  * relations that were returned by the readers, and forms the org hierarchy.
  *
- * @param groups Group entities with empty relations; modified in place
- * @param users User entities with empty relations; modified in place
- * @param userMemberOf For a user DN, the set of group DNs or UUIDs that the
- *                     user is a member of
- * @param groupMemberOf For a group DN, the set of group DNs or UUIDs that the
- *                      group is a member of (parents in the hierarchy)
- * @param groupMember For a group DN, the set of group DNs or UUIDs that are
- *                    members of the group (children in the hierarchy)
+ * @param groups - Group entities with empty relations; modified in place
+ * @param users - User entities with empty relations; modified in place
+ * @param userMemberOf - For a user DN, the set of group DNs or UUIDs that the
+ *        user is a member of
+ * @param groupMemberOf - For a group DN, the set of group DNs or UUIDs that
+ *        the group is a member of (parents in the hierarchy)
+ * @param groupMember - For a group DN, the set of group DNs or UUIDs that are
+ *        members of the group (children in the hierarchy)
  */
 export function resolveRelations(
   groups: GroupEntity[],
@@ -338,19 +402,33 @@ export function resolveRelations(
 ) {
   // Build reference lookup tables - all of the relations that are output from
   // the above calls can be expressed as either DNs or UUIDs so we need to be
-  // able to find by both, as well as the name. Note that we expect them to not
+  // able to find by both, as well as the entity reference. Note that we expect them to not
   // collide here - this is a reasonable assumption as long as the fields are
   // the supported forms.
-  const userMap: Map<string, UserEntity> = new Map(); // by name, dn, uuid
-  const groupMap: Map<string, GroupEntity> = new Map(); // by name, dn, uuid
+  const userMap: Map<string, UserEntity> = new Map(); // by entityRef, dn, uuid
+  const groupMap: Map<string, GroupEntity> = new Map(); // by entityRef, dn, uuid
   for (const user of users) {
-    userMap.set(user.metadata.name, user);
+    userMap.set(stringifyEntityRef(user), user);
     userMap.set(user.metadata.annotations![LDAP_DN_ANNOTATION], user);
+    userMap.set(
+      user.metadata.annotations![LDAP_DN_ANNOTATION]?.toLocaleLowerCase(
+        'en-US',
+      ),
+      user,
+    );
+    userMap.set(user.metadata.annotations![LDAP_RDN_ANNOTATION], user);
     userMap.set(user.metadata.annotations![LDAP_UUID_ANNOTATION], user);
   }
   for (const group of groups) {
-    groupMap.set(group.metadata.name, group);
+    groupMap.set(stringifyEntityRef(group), group);
     groupMap.set(group.metadata.annotations![LDAP_DN_ANNOTATION], group);
+    groupMap.set(
+      group.metadata.annotations![LDAP_DN_ANNOTATION]?.toLocaleLowerCase(
+        'en-US',
+      ),
+      group,
+    );
+    groupMap.set(group.metadata.annotations![LDAP_RDN_ANNOTATION], group);
     groupMap.set(group.metadata.annotations![LDAP_UUID_ANNOTATION], group);
   }
 
@@ -360,7 +438,7 @@ export function resolveRelations(
   userMap.delete(undefined!);
   groupMap.delete(undefined!);
 
-  // Fill in all of the immediate relations, now keyed on metadata.name. We
+  // Fill in all of the immediate relations, now keyed on the entity reference. We
   // keep all parents at this point, whether the target model can support more
   // than one or not (it gets filtered farther down). And group children are
   // only groups in here.
@@ -374,53 +452,59 @@ export function resolveRelations(
   // express relations in different directions. Some may have a user memberOf
   // overlay, some don't, for example.
   for (const [userN, groupsN] of userMemberOf.entries()) {
-    const user = userMap.get(userN);
+    const user = getValueFromMapWithInsensitiveKey(userMap, userN);
     if (user) {
       for (const groupN of groupsN) {
-        const group = groupMap.get(groupN);
+        const group = getValueFromMapWithInsensitiveKey(groupMap, groupN);
         if (group) {
-          ensureItems(newUserMemberOf, user.metadata.name, [
-            group.metadata.name,
+          ensureItems(newUserMemberOf, stringifyEntityRef(user), [
+            stringifyEntityRef(group),
           ]);
         }
       }
     }
   }
   for (const [groupN, parentsN] of groupMemberOf.entries()) {
-    const group = groupMap.get(groupN);
+    const group = getValueFromMapWithInsensitiveKey(groupMap, groupN);
     if (group) {
       for (const parentN of parentsN) {
-        const parentGroup = groupMap.get(parentN);
+        const parentGroup = getValueFromMapWithInsensitiveKey(
+          groupMap,
+          parentN,
+        );
         if (parentGroup) {
-          ensureItems(newGroupParents, group.metadata.name, [
-            parentGroup.metadata.name,
+          ensureItems(newGroupParents, stringifyEntityRef(group), [
+            stringifyEntityRef(parentGroup),
           ]);
-          ensureItems(newGroupChildren, parentGroup.metadata.name, [
-            group.metadata.name,
+          ensureItems(newGroupChildren, stringifyEntityRef(parentGroup), [
+            stringifyEntityRef(group),
           ]);
         }
       }
     }
   }
   for (const [groupN, membersN] of groupMember.entries()) {
-    const group = groupMap.get(groupN);
+    const group = getValueFromMapWithInsensitiveKey(groupMap, groupN);
     if (group) {
       for (const memberN of membersN) {
         // Group members can be both users and groups in the input model, so
         // try both
-        const memberUser = userMap.get(memberN);
+        const memberUser = getValueFromMapWithInsensitiveKey(userMap, memberN);
         if (memberUser) {
-          ensureItems(newUserMemberOf, memberUser.metadata.name, [
-            group.metadata.name,
+          ensureItems(newUserMemberOf, stringifyEntityRef(memberUser), [
+            stringifyEntityRef(group),
           ]);
         } else {
-          const memberGroup = groupMap.get(memberN);
+          const memberGroup = getValueFromMapWithInsensitiveKey(
+            groupMap,
+            memberN,
+          );
           if (memberGroup) {
-            ensureItems(newGroupChildren, group.metadata.name, [
-              memberGroup.metadata.name,
+            ensureItems(newGroupChildren, stringifyEntityRef(group), [
+              stringifyEntityRef(memberGroup),
             ]);
-            ensureItems(newGroupParents, memberGroup.metadata.name, [
-              group.metadata.name,
+            ensureItems(newGroupParents, stringifyEntityRef(memberGroup), [
+              stringifyEntityRef(group),
             ]);
           }
         }
@@ -430,21 +514,21 @@ export function resolveRelations(
 
   // Write down the relations again into the actual entities
   for (const [userN, groupsN] of newUserMemberOf.entries()) {
-    const user = userMap.get(userN);
+    const user = getValueFromMapWithInsensitiveKey(userMap, userN);
     if (user) {
       user.spec.memberOf = Array.from(groupsN).sort();
     }
   }
   for (const [groupN, parentsN] of newGroupParents.entries()) {
     if (parentsN.size === 1) {
-      const group = groupMap.get(groupN);
+      const group = getValueFromMapWithInsensitiveKey(groupMap, groupN);
       if (group) {
         group.spec.parent = parentsN.values().next().value;
       }
     }
   }
   for (const [groupN, childrenN] of newGroupChildren.entries()) {
-    const group = groupMap.get(groupN);
+    const group = getValueFromMapWithInsensitiveKey(groupMap, groupN);
     if (group) {
       group.spec.children = Array.from(childrenN).sort();
     }

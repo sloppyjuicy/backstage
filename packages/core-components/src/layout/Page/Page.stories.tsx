@@ -14,19 +14,12 @@
  * limitations under the License.
  */
 
-import { Box, Chip, Grid, Link, Typography } from '@material-ui/core';
+import { wrapInTestApp } from '@backstage/test-utils';
+import Box from '@material-ui/core/Box';
+import Chip from '@material-ui/core/Chip';
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
 import React, { useState } from 'react';
-import { MemoryRouter } from 'react-router';
-import { createApp } from '@backstage/core-app-api';
-import {
-  Content,
-  ContentHeader,
-  Header,
-  HeaderLabel,
-  HeaderTabs,
-  InfoCard,
-  Page,
-} from '..';
 import {
   GaugeCard,
   StatusOK,
@@ -34,7 +27,15 @@ import {
   Table,
   TableColumn,
   TrendLine,
+  Link,
 } from '../../components';
+import { Content } from '../Content';
+import { ContentHeader } from '../ContentHeader';
+import { Header } from '../Header';
+import { HeaderLabel } from '../HeaderLabel';
+import { HeaderTabs } from '../HeaderTabs';
+import { InfoCard } from '../InfoCard';
+import { Page } from '../Page';
 
 export default {
   title: 'Plugins/Examples',
@@ -74,7 +75,7 @@ const columns: TableColumn[] = [
     highlight: true,
     render: (row: Partial<TableData>) => (
       <>
-        <Link>{row.branch}</Link>
+        <Link to="#message-source">{row.branch}</Link>
         <Typography variant="body2">{row.hash}</Typography>
       </>
     ),
@@ -168,7 +169,8 @@ const DataGrid = () => (
           able to function.
         </Typography>
         <Typography paragraph>
-          Contact <Link>#cost-awareness</Link> for information and support.
+          Contact <Link to="#cost-awareness">#cost-awareness</Link> for
+          information and support.
         </Typography>
       </InfoCard>
     </Grid>
@@ -193,53 +195,44 @@ const ExampleContentHeader = ({ selectedTab }: { selectedTab?: number }) => (
   </ContentHeader>
 );
 
-const app = createApp({ configLoader: async () => [] });
-const AppProvider = app.getProvider();
-
 export const PluginWithData = () => {
   const [selectedTab, setSelectedTab] = useState<number>(2);
-  return (
-    <AppProvider>
-      <MemoryRouter>
-        <div style={{ border: '1px solid #ddd' }}>
-          <Page themeId="tool">
-            <ExampleHeader />
-            <HeaderTabs
-              selectedIndex={selectedTab}
-              onChange={index => setSelectedTab(index)}
-              tabs={tabs.map(({ label }, index) => ({
-                id: index.toString(),
-                label,
-              }))}
-            />
-            <Content>
-              <ExampleContentHeader selectedTab={selectedTab} />
-              <DataGrid />
-            </Content>
-          </Page>
-        </div>
-      </MemoryRouter>
-    </AppProvider>
-  );
+  return wrapInTestApp(() => (
+    <div style={{ border: '1px solid #ddd' }}>
+      <Page themeId="tool">
+        <ExampleHeader />
+        <HeaderTabs
+          selectedIndex={selectedTab}
+          onChange={index => setSelectedTab(index)}
+          tabs={tabs.map(({ label }, index) => ({
+            id: index.toString(),
+            label,
+          }))}
+        />
+        <Content>
+          <ExampleContentHeader selectedTab={selectedTab} />
+          <DataGrid />
+        </Content>
+      </Page>
+    </div>
+  ));
 };
 
 export const PluginWithTable = () => {
-  return (
-    <AppProvider>
-      <div style={{ border: '1px solid #ddd' }}>
-        <Page themeId="tool">
-          <ExampleHeader />
-          <Content>
-            <ExampleContentHeader />
-            <Table
-              options={{ paging: true, padding: 'dense' }}
-              data={generateTestData(10)}
-              columns={columns}
-              title="Example Content"
-            />
-          </Content>
-        </Page>
-      </div>
-    </AppProvider>
-  );
+  return wrapInTestApp(() => (
+    <div style={{ border: '1px solid #ddd' }}>
+      <Page themeId="tool">
+        <ExampleHeader />
+        <Content>
+          <ExampleContentHeader />
+          <Table
+            options={{ paging: true, padding: 'dense' }}
+            data={generateTestData(10)}
+            columns={columns}
+            title="Example Content"
+          />
+        </Content>
+      </Page>
+    </div>
+  ));
 };

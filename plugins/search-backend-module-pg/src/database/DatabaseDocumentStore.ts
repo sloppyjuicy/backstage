@@ -13,8 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { resolvePackagePath } from '@backstage/backend-common';
-import { IndexableDocument } from '@backstage/search-common';
+import {
+  DatabaseService,
+  resolvePackagePath,
+} from '@backstage/backend-plugin-api';
+import { IndexableDocument } from '@backstage/plugin-search-common';
 import { Knex } from 'knex';
 import {
   DatabaseStore,
@@ -29,29 +32,36 @@ const migrationsDir = resolvePackagePath(
   'migrations',
 );
 
+/** @public */
 export class DatabaseDocumentStore implements DatabaseStore {
-  static async create(knex: Knex): Promise<DatabaseDocumentStore> {
+  static async create(
+    database: DatabaseService,
+  ): Promise<DatabaseDocumentStore> {
+    const knex = await database.getClient();
     try {
       const majorVersion = await queryPostgresMajorVersion(knex);
 
-      if (majorVersion < 11) {
+      if (majorVersion < 12) {
         // We are using some features (like generated columns) that aren't
         // available in older postgres versions.
         throw new Error(
-          `The PgSearchEngine requires at least postgres version 11 (but is running on ${majorVersion})`,
+          `The PgSearchEngine requires at least postgres version 12 (but is running on ${majorVersion})`,
         );
       }
     } catch {
       // Actually both mysql and sqlite have a full text search, too. We could
       // implement them separately or add them here.
       throw new Error(
-        'The PgSearchEngine is only supported when using a postgres database (>=11.x)',
+        'The PgSearchEngine is only supported when using a postgres database (>=12.x)',
       );
     }
 
-    await knex.migrate.latest({
-      directory: migrationsDir,
-    });
+    if (!database.migrations?.skip) {
+      await knex.migrate.latest({
+        directory: migrationsDir,
+      });
+    }
+
     return new DatabaseDocumentStore(knex);
   }
 
@@ -59,7 +69,7 @@ export class DatabaseDocumentStore implements DatabaseStore {
     try {
       const majorVersion = await queryPostgresMajorVersion(knex);
 
-      return majorVersion >= 11;
+      return majorVersion >= 12;
     } catch {
       return false;
     }
@@ -69,6 +79,10 @@ export class DatabaseDocumentStore implements DatabaseStore {
 
   async transaction<T>(fn: (tx: Knex.Transaction) => Promise<T>): Promise<T> {
     return await this.db.transaction(fn);
+  }
+
+  async getTransaction(): Promise<Knex.Transaction> {
+    return this.db.transaction();
   }
 
   async prepareInsert(tx: Knex.Transaction): Promise<void> {
@@ -103,12 +117,16 @@ export class DatabaseDocumentStore implements DatabaseStore {
       .ignore();
 
     // Delete all documents that we don't expect (deleted and changed)
+    const rowsToDelete = tx<RawDocumentRow>('documents')
+      .select('documents.hash')
+      .leftJoin<RawDocumentRow>('documents_to_insert', {
+        'documents.hash': 'documents_to_insert.hash',
+      })
+      .whereNull('documents_to_insert.hash');
+
     await tx<RawDocumentRow>('documents')
       .where({ type })
-      .whereNotIn(
-        'hash',
-        tx<RawDocumentRow>('documents_to_insert').select('hash'),
-      )
+      .whereIn('hash', rowsToDelete)
       .delete();
   }
 
@@ -128,10 +146,21 @@ export class DatabaseDocumentStore implements DatabaseStore {
 
   async query(
     tx: Knex.Transaction,
-    { types, pgTerm, fields }: PgSearchQuery,
+    searchQuery: PgSearchQuery,
   ): Promise<DocumentResultRow[]> {
+    const {
+      types,
+      pgTerm,
+      fields,
+      offset,
+      limit,
+      normalization = 0,
+      options,
+    } = searchQuery;
+    // TODO(awanlin): We should make the language a parameter so that we can support more then just english
     // Builds a query like:
-    // SELECT ts_rank_cd(body, query) AS rank,  type, document
+    // SELECT ts_rank_cd(body, query, 0) AS rank, type, document,
+    // ts_headline('english', document, query) AS highlight
     // FROM documents, to_tsquery('english', 'consent') query
     // WHERE query @@ body AND (document @> '{"kind": "API"}')
     // ORDER BY rank DESC
@@ -154,9 +183,13 @@ export class DatabaseDocumentStore implements DatabaseStore {
       Object.keys(fields).forEach(key => {
         const value = fields[key];
         const valueArray = Array.isArray(value) ? value : [value];
-        const valueCompare = valueArray
+        const fieldValueCompare = valueArray
           .map(v => ({ [key]: v }))
           .map(v => JSON.stringify(v));
+        const arrayValueCompare = valueArray
+          .map(v => ({ [key]: [v] }))
+          .map(v => JSON.stringify(v));
+        const valueCompare = [...fieldValueCompare, ...arrayValueCompare];
         query.whereRaw(
           `(${valueCompare.map(() => 'document @> ?').join(' OR ')})`,
           valueCompare,
@@ -166,14 +199,24 @@ export class DatabaseDocumentStore implements DatabaseStore {
 
     query.select('type', 'document');
 
-    if (pgTerm) {
+    if (pgTerm && options.useHighlight) {
+      const headlineOptions = `MaxWords=${options.maxWords}, MinWords=${options.minWords}, ShortWord=${options.shortWord}, HighlightAll=${options.highlightAll}, MaxFragments=${options.maxFragments}, FragmentDelimiter=${options.fragmentDelimiter}, StartSel=${options.preTag}, StopSel=${options.postTag}`;
       query
-        .select(tx.raw('ts_rank_cd(body, query) AS "rank"'))
+        .select(tx.raw(`ts_rank_cd(body, query, ${normalization}) AS "rank"`))
+        .select(
+          tx.raw(
+            `ts_headline(\'english\', document, query, '${headlineOptions}') as "highlight"`,
+          ),
+        )
+        .orderBy('rank', 'desc');
+    } else if (pgTerm && !options.useHighlight) {
+      query
+        .select(tx.raw(`ts_rank_cd(body, query, ${normalization}) AS "rank"`))
         .orderBy('rank', 'desc');
     } else {
       query.select(tx.raw('1 as rank'));
     }
 
-    return await query.limit(100);
+    return await query.offset(offset).limit(limit);
   }
 }

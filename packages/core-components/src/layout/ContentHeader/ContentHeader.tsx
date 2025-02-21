@@ -13,58 +13,67 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/**
- * TODO favoriteable capability
- */
-
-import React, { ComponentType, PropsWithChildren } from 'react';
-import { Typography, makeStyles } from '@material-ui/core';
+import Box from '@material-ui/core/Box';
+import { makeStyles } from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
+import React, { PropsWithChildren, ReactNode } from 'react';
 import { Helmet } from 'react-helmet';
 
+/**
+ * TODO: favoriteable capability
+ */
+
+/** @public */
+export type ContentHeaderClassKey =
+  | 'container'
+  | 'leftItemsBox'
+  | 'rightItemsBox'
+  | 'description'
+  | 'title';
+
 const useStyles = (props: ContentHeaderProps) =>
-  makeStyles(theme => ({
-    container: {
-      width: '100%',
-      display: 'flex',
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'flex-end',
-      alignItems: 'center',
-      marginBottom: theme.spacing(2),
-      textAlign: props.textAlign,
-    },
-    leftItemsBox: {
-      flex: '1 1 auto',
-      minWidth: 0,
-      overflow: 'visible',
-    },
-    rightItemsBox: {
-      flex: '0 1 auto',
-      display: 'flex',
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      alignItems: 'center',
-      marginLeft: theme.spacing(1),
-      minWidth: 0,
-      overflow: 'visible',
-    },
-    description: {},
-    title: {
-      display: 'inline-flex',
-      marginBottom: 0,
-    },
-  }));
+  makeStyles(
+    theme => ({
+      container: {
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        marginBottom: theme.spacing(2),
+        textAlign: props.textAlign,
+      },
+      leftItemsBox: {
+        flex: '1 1 auto',
+        minWidth: 0,
+        overflow: 'visible',
+      },
+      rightItemsBox: {
+        flex: '0 1 auto',
+        display: 'flex',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        marginLeft: theme.spacing(1),
+        minWidth: 0,
+        overflow: 'visible',
+      },
+      description: {},
+      title: {
+        display: 'inline-flex',
+        marginBottom: 0,
+      },
+    }),
+    { name: 'BackstageContentHeader' },
+  );
 
 type ContentHeaderTitleProps = {
   title?: string;
   className?: string;
 };
 
-const ContentHeaderTitle = ({
-  title = 'Unknown page',
-  className,
-}: ContentHeaderTitleProps) => (
+const ContentHeaderTitle = ({ title, className }: ContentHeaderTitleProps) => (
   <Typography
     variant="h4"
     component="h2"
@@ -75,41 +84,76 @@ const ContentHeaderTitle = ({
   </Typography>
 );
 
+type ContentHeaderDescriptionProps = {
+  description?: string;
+  className?: string;
+};
+
+const ContentHeaderDescription = ({
+  description,
+  className,
+}: ContentHeaderDescriptionProps) =>
+  description ? (
+    <Typography
+      variant="body2"
+      className={className}
+      data-testid="header-description"
+    >
+      {description}
+    </Typography>
+  ) : null;
+
 type ContentHeaderProps = {
   title?: ContentHeaderTitleProps['title'];
-  titleComponent?: ComponentType;
-  description?: string;
+  titleComponent?: ReactNode;
+  description?: ContentHeaderDescriptionProps['description'];
+  descriptionComponent?: ReactNode;
   textAlign?: 'left' | 'right' | 'center';
 };
 
-export const ContentHeader = ({
-  description,
-  title,
-  titleComponent: TitleComponent = undefined,
-  children,
-  textAlign = 'left',
-}: PropsWithChildren<ContentHeaderProps>) => {
+/**
+ *  A header at the top inside a {@link Content}.
+ *
+ * @public
+ *
+ */
+
+export function ContentHeader(props: PropsWithChildren<ContentHeaderProps>) {
+  const {
+    description,
+    title,
+    titleComponent: TitleComponent = undefined,
+    children,
+    descriptionComponent: DescriptionComponent = undefined,
+    textAlign = 'left',
+  } = props;
   const classes = useStyles({ textAlign })();
 
   const renderedTitle = TitleComponent ? (
-    <TitleComponent />
+    TitleComponent
   ) : (
     <ContentHeaderTitle title={title} className={classes.title} />
   );
+
+  const renderedDescription = DescriptionComponent ? (
+    DescriptionComponent
+  ) : (
+    <ContentHeaderDescription
+      description={description}
+      className={classes.description}
+    />
+  );
+
   return (
     <>
       <Helmet title={title} />
-      <div className={classes.container}>
-        <div className={classes.leftItemsBox}>
+      <Box className={classes.container}>
+        <Box className={classes.leftItemsBox}>
           {renderedTitle}
-          {description && (
-            <Typography className={classes.description} variant="body2">
-              {description}
-            </Typography>
-          )}
-        </div>
-        <div className={classes.rightItemsBox}>{children}</div>
-      </div>
+          {renderedDescription}
+        </Box>
+        <Box className={classes.rightItemsBox}>{children}</Box>
+      </Box>
     </>
   );
-};
+}

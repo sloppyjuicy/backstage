@@ -14,58 +14,101 @@
  * limitations under the License.
  */
 
-import { makeStyles, useTheme } from '@material-ui/core';
-import { BackstageTheme } from '@backstage/theme';
+import { BackstagePalette } from '@backstage/theme';
+import { makeStyles, useTheme } from '@material-ui/core/styles';
 import { Circle } from 'rc-progress';
-import React from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
+import Box from '@material-ui/core/Box';
+import classNames from 'classnames';
 
-const useStyles = makeStyles<BackstageTheme>(theme => ({
-  root: {
-    position: 'relative',
-    lineHeight: 0,
-  },
-  overlay: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -60%)',
-    fontSize: 45,
-    fontWeight: 'bold',
-    color: theme.palette.textContrast,
-  },
-  circle: {
-    width: '80%',
-    transform: 'translate(10%, 0)',
-  },
-  colorUnknown: {},
-}));
+/** @public */
+export type GaugeClassKey =
+  | 'root'
+  | 'overlay'
+  | 'description'
+  | 'circle'
+  | 'colorUnknown';
 
-type Props = {
+const useStyles = makeStyles(
+  theme => ({
+    root: {
+      position: 'relative',
+      lineHeight: 0,
+    },
+    overlay: {
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -60%)',
+      fontSize: theme.typography.pxToRem(45),
+      fontWeight: theme.typography.fontWeightBold,
+      color: theme.palette.textContrast,
+    },
+    overlaySmall: {
+      fontSize: theme.typography.pxToRem(25),
+    },
+    description: {
+      fontSize: '100%',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      position: 'absolute',
+      wordBreak: 'break-all',
+      display: 'inline-block',
+    },
+    circle: {
+      width: '80%',
+      transform: 'translate(10%, 0)',
+    },
+    colorUnknown: {},
+  }),
+  { name: 'BackstageGauge' },
+);
+
+/** @public */
+export type GaugeProps = {
   value: number;
   fractional?: boolean;
   inverse?: boolean;
   unit?: string;
   max?: number;
+  size?: 'normal' | 'small';
+  description?: ReactNode;
+  getColor?: GaugePropsGetColor;
+  relativeToMax?: boolean;
+  decimalDigits?: number;
 };
 
-const defaultProps = {
+/** @public */
+export type GaugePropsGetColorOptions = {
+  palette: BackstagePalette;
+  value: number;
+  inverse?: boolean;
+  max?: number;
+};
+
+/** @public */
+export type GaugePropsGetColor = (args: GaugePropsGetColorOptions) => string;
+
+const defaultGaugeProps = {
   fractional: true,
   inverse: false,
   unit: '%',
   max: 100,
+  relativeToMax: false,
 };
 
-export function getProgressColor(
-  palette: BackstageTheme['palette'],
-  value: number,
-  inverse?: boolean,
-  max?: number,
-) {
+export const getProgressColor: GaugePropsGetColor = ({
+  palette,
+  value,
+  inverse,
+  max,
+}) => {
   if (isNaN(value)) {
     return '#ddd';
   }
 
-  const actualMax = max ? max : defaultProps.max;
+  const actualMax = max ? max : defaultGaugeProps.max;
   const actualValue = inverse ? actualMax - value : value;
 
   if (actualValue < actualMax / 3) {
@@ -75,32 +118,97 @@ export function getProgressColor(
   }
 
   return palette.status.ok;
-}
+};
 
-export const Gauge = (props: Props) => {
+/**
+ * Circular Progress Bar
+ *
+ * @public
+ *
+ */
+
+export function Gauge(props: GaugeProps) {
+  const [hoverRef, setHoverRef] = useState<HTMLDivElement | null>(null);
+  const { getColor = getProgressColor, size = 'normal' } = props;
   const classes = useStyles(props);
-  const theme = useTheme<BackstageTheme>();
-  const { value, fractional, inverse, unit, max } = {
-    ...defaultProps,
+  const { palette } = useTheme();
+  const {
+    value,
+    fractional,
+    inverse,
+    unit,
+    max,
+    description,
+    relativeToMax,
+    decimalDigits,
+  } = {
+    ...defaultGaugeProps,
     ...props,
   };
 
-  const asPercentage = fractional ? Math.round(value * max) : value;
-  const asActual = max !== 100 ? Math.round(value) : asPercentage;
+  let asPercentage: number;
+  if (relativeToMax) {
+    asPercentage = (value / max) * 100;
+  } else {
+    asPercentage = fractional ? Math.round(value * max) : value;
+  }
+  let asActual: number;
+  if (relativeToMax) {
+    asActual = value;
+  } else {
+    asActual = max !== 100 ? Math.round(value) : asPercentage;
+  }
+  const asDisplay =
+    decimalDigits === undefined
+      ? asActual.toString()
+      : asActual.toFixed(decimalDigits);
+
+  const [isHovering, setIsHovering] = useState(false);
+
+  useEffect(() => {
+    const node = hoverRef;
+    const handleMouseOver = () => setIsHovering(true);
+    const handleMouseOut = () => setIsHovering(false);
+    if (node && description) {
+      node.addEventListener('mouseenter', handleMouseOver);
+      node.addEventListener('mouseleave', handleMouseOut);
+
+      return () => {
+        node.removeEventListener('mouseenter', handleMouseOver);
+        node.removeEventListener('mouseleave', handleMouseOut);
+      };
+    }
+    return () => {
+      setIsHovering(false);
+    };
+  }, [description, hoverRef]);
 
   return (
-    <div className={classes.root}>
+    <Box {...{ ref: setHoverRef }} className={classes.root}>
       <Circle
         strokeLinecap="butt"
         percent={asPercentage}
         strokeWidth={12}
         trailWidth={12}
-        strokeColor={getProgressColor(theme.palette, asActual, inverse, max)}
+        strokeColor={getColor({
+          palette,
+          value: asPercentage,
+          inverse,
+          max: relativeToMax ? 100 : max,
+        })}
         className={classes.circle}
       />
-      <div className={classes.overlay}>
-        {isNaN(value) ? 'N/A' : `${asActual}${unit}`}
-      </div>
-    </div>
+      {description && isHovering ? (
+        <Box className={classes.description}>{description}</Box>
+      ) : (
+        <Box
+          className={classNames(classes.overlay, {
+            [classes.overlaySmall]: size === 'small',
+          })}
+        >
+          {isNaN(value) ? 'N/A' : `${asDisplay}${unit}`}
+        </Box>
+      )}
+    </Box>
   );
-};
+}

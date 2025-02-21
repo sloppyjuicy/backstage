@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-import { ClickAwayListener, makeStyles, Typography } from '@material-ui/core';
+import Box from '@material-ui/core/Box';
+import ClickAwayListener from '@material-ui/core/ClickAwayListener';
+import { makeStyles } from '@material-ui/core/styles';
+import Typography from '@material-ui/core/Typography';
 import React, {
   PropsWithChildren,
   useCallback,
@@ -24,58 +26,72 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+
 import { usePortal } from './lib/usePortal';
 import { useShowCallout } from './lib/useShowCallout';
 
-const useStyles = makeStyles({
-  '@keyframes pulsateSlightly': {
-    '0%': { transform: 'scale(1.0)' },
-    '100%': { transform: 'scale(1.1)' },
-  },
-  '@keyframes pulsateAndFade': {
-    '0%': { transform: 'scale(1.0)', opacity: 0.9 },
-    '100%': { transform: 'scale(1.5)', opacity: 0 },
-  },
-  featureWrapper: {
-    position: 'relative',
-  },
-  backdrop: {
-    zIndex: 2000,
-    position: 'fixed',
-    overflow: 'hidden',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-  },
-  dot: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-    borderRadius: '100%',
-    border: '1px solid rgba(103, 146, 180, 0.98)',
-    boxShadow: '0px 0px 0px 20000px rgba(0, 0, 0, 0.5)',
-    zIndex: 2001,
-    transformOrigin: 'center center',
-    animation:
-      '$pulsateSlightly 1744ms 1.2s cubic-bezier(0.4, 0, 0.2, 1) alternate infinite',
-  },
-  pulseCircle: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: 'transparent',
-    borderRadius: '100%',
-    border: '2px solid white',
-    zIndex: 2001,
-    transformOrigin: 'center center',
-    animation:
-      '$pulsateAndFade 872ms 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
-  },
-  text: {
-    position: 'absolute',
-    color: 'white',
-    zIndex: 2003,
-  },
-});
+/** @public */
+export type FeatureCalloutCircleClassKey =
+  | '@keyframes pulsateSlightly'
+  | '@keyframes pulsateAndFade'
+  | 'featureWrapper'
+  | 'backdrop'
+  | 'dot'
+  | 'pulseCircle'
+  | 'text';
+
+const useStyles = makeStyles(
+  theme => ({
+    '@keyframes pulsateSlightly': {
+      '0%': { transform: 'scale(1.0)' },
+      '100%': { transform: 'scale(1.1)' },
+    },
+    '@keyframes pulsateAndFade': {
+      '0%': { transform: 'scale(1.0)', opacity: 0.9 },
+      '100%': { transform: 'scale(1.5)', opacity: 0 },
+    },
+    featureWrapper: {
+      position: 'relative',
+    },
+    backdrop: {
+      zIndex: 2000,
+      position: 'fixed',
+      overflow: 'hidden',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+    },
+    dot: {
+      position: 'absolute',
+      backgroundColor: 'transparent',
+      borderRadius: '100%',
+      border: '1px solid rgba(103, 146, 180, 0.98)',
+      boxShadow: '0px 0px 0px 20000px rgba(0, 0, 0, 0.5)',
+      zIndex: 2001,
+      transformOrigin: 'center center',
+      animation:
+        '$pulsateSlightly 1744ms 1.2s cubic-bezier(0.4, 0, 0.2, 1) alternate infinite',
+    },
+    pulseCircle: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: 'transparent',
+      borderRadius: '100%',
+      border: `2px solid ${theme.palette.common.white}`,
+      zIndex: 2001,
+      transformOrigin: 'center center',
+      animation:
+        '$pulsateAndFade 872ms 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
+    },
+    text: {
+      position: 'absolute',
+      color: theme.palette.common.white,
+      zIndex: 2003,
+    },
+  }),
+  { name: 'BackstageFeatureCalloutCircular' },
+);
 
 export type Props = {
   featureId: string;
@@ -93,12 +109,14 @@ type Placement = {
   textWidth: number;
 };
 
-export const FeatureCalloutCircular = ({
-  featureId,
-  title,
-  description,
-  children,
-}: PropsWithChildren<Props>) => {
+/**
+ * One-time, round 'telescope' animation showing new feature.
+ *
+ * @public
+ *
+ */
+export function FeatureCalloutCircular(props: PropsWithChildren<Props>) {
+  const { featureId, title, description, children } = props;
   const { show, hide } = useShowCallout(featureId);
   const portalElement = usePortal('core.callout');
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -151,14 +169,14 @@ export const FeatureCalloutCircular = ({
 
   return (
     <>
-      <div className={classes.featureWrapper} ref={wrapperRef}>
+      <Box className={classes.featureWrapper} {...{ ref: wrapperRef }}>
         {children}
-      </div>
+      </Box>
       {createPortal(
-        <div className={classes.backdrop}>
+        <Box className={classes.backdrop}>
           <ClickAwayListener onClickAway={hide}>
             <>
-              <div
+              <Box
                 className={classes.dot}
                 data-testid="dot"
                 style={{
@@ -173,9 +191,9 @@ export const FeatureCalloutCircular = ({
                 role="button"
                 tabIndex={0}
               >
-                <div className={classes.pulseCircle} />
-              </div>
-              <div
+                <Box className={classes.pulseCircle} />
+              </Box>
+              <Box
                 className={classes.text}
                 data-testid="text"
                 style={{
@@ -188,12 +206,12 @@ export const FeatureCalloutCircular = ({
                   {title}
                 </Typography>
                 <Typography>{description}</Typography>
-              </div>
+              </Box>
             </>
           </ClickAwayListener>
-        </div>,
+        </Box>,
         portalElement,
       )}
     </>
   );
-};
+}

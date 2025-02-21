@@ -14,49 +14,90 @@
  * limitations under the License.
  */
 
-import fs from 'fs-extra';
-import { resolve as resolvePath } from 'path';
+import { BundlingOptions, ModuleFederationOptions } from './types';
+import { resolve as resolvePath, dirname } from 'path';
+import chalk from 'chalk';
+import webpack from 'webpack';
+
+import { BundlingPaths } from './paths';
+import { Config } from '@backstage/config';
+import ESLintPlugin from 'eslint-webpack-plugin';
 import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
 import HtmlWebpackPlugin from 'html-webpack-plugin';
+import { ModuleFederationPlugin } from '@module-federation/enhanced/webpack';
 import ModuleScopePlugin from 'react-dev-utils/ModuleScopePlugin';
-import { RunScriptWebpackPlugin } from 'run-script-webpack-plugin';
-import webpack, { ProvidePlugin } from 'webpack';
-import nodeExternals from 'webpack-node-externals';
-import { isChildPath } from '@backstage/cli-common';
-import { optimization } from './optimization';
-import { Config } from '@backstage/config';
-import { BundlingPaths } from './paths';
-import { transforms } from './transforms';
-import { LinkedPackageResolvePlugin } from './LinkedPackageResolvePlugin';
-import { BundlingOptions, BackendBundlingOptions, LernaPackage } from './types';
-import { version } from '../../lib/version';
+import ReactRefreshPlugin from '@pmmmwh/react-refresh-webpack-plugin';
 import { paths as cliPaths } from '../../lib/paths';
+import fs from 'fs-extra';
+import { optimization as optimizationConfig } from './optimization';
+import pickBy from 'lodash/pickBy';
 import { runPlain } from '../run';
+import { transforms } from './transforms';
+import { version } from '../../lib/version';
+import yn from 'yn';
+import { hasReactDomClient } from './hasReactDomClient';
+import { createWorkspaceLinkingPlugins } from './linkWorkspaces';
+import { ConfigInjectingHtmlWebpackPlugin } from './ConfigInjectingHtmlWebpackPlugin';
 
-export function resolveBaseUrl(config: Config): URL {
-  const baseUrl = config.getString('app.baseUrl');
+const BUILD_CACHE_ENV_VAR = 'BACKSTAGE_CLI_EXPERIMENTAL_BUILD_CACHE';
+
+export function resolveBaseUrl(
+  config: Config,
+  moduleFederation?: ModuleFederationOptions,
+): URL {
+  const baseUrl = config.getOptionalString('app.baseUrl');
+
+  const defaultBaseUrl =
+    moduleFederation?.mode === 'remote'
+      ? `http://localhost:${process.env.PORT ?? '3000'}`
+      : 'http://localhost:3000';
+
   try {
-    return new URL(baseUrl);
+    return new URL(baseUrl ?? '/', defaultBaseUrl);
   } catch (error) {
     throw new Error(`Invalid app.baseUrl, ${error}`);
   }
 }
 
+export function resolveEndpoint(
+  config: Config,
+  moduleFederation?: ModuleFederationOptions,
+): {
+  host: string;
+  port: number;
+} {
+  const url = resolveBaseUrl(config, moduleFederation);
+
+  return {
+    host: config.getOptionalString('app.listen.host') ?? url.hostname,
+    port:
+      config.getOptionalNumber('app.listen.port') ??
+      Number(url.port) ??
+      (url.protocol === 'https:' ? 443 : 80),
+  };
+}
+
 async function readBuildInfo() {
   const timestamp = Date.now();
 
-  let commit = 'unknown';
+  let commit: string | undefined;
   try {
     commit = await runPlain('git', 'rev-parse', 'HEAD');
   } catch (error) {
-    console.warn(`WARNING: Failed to read git commit, ${error}`);
+    // ignore, see below
   }
 
-  let gitVersion = 'unknown';
+  let gitVersion: string | undefined;
   try {
     gitVersion = await runPlain('git', 'describe', '--always');
   } catch (error) {
-    console.warn(`WARNING: Failed to describe git version, ${error}`);
+    // ignore, see below
+  }
+
+  if (commit === undefined || gitVersion === undefined) {
+    console.info(
+      'NOTE: Did not compute git version or commit hash, could not execute the git command line utility',
+    );
   }
 
   const { version: packageVersion } = await fs.readJson(
@@ -65,117 +106,318 @@ async function readBuildInfo() {
 
   return {
     cliVersion: version,
-    gitVersion,
+    gitVersion: gitVersion ?? 'unknown',
     packageVersion,
     timestamp,
-    commit,
+    commit: commit ?? 'unknown',
   };
-}
-
-async function loadLernaPackages(): Promise<LernaPackage[]> {
-  const { Project } = require('@lerna/project');
-  const project = new Project(cliPaths.targetDir);
-  return project.getPackages();
 }
 
 export async function createConfig(
   paths: BundlingPaths,
   options: BundlingOptions,
 ): Promise<webpack.Configuration> {
-  const { checksEnabled, isDev, frontendConfig } = options;
+  const {
+    checksEnabled,
+    isDev,
+    frontendConfig,
+    moduleFederation,
+    publicSubPath = '',
+    rspack,
+  } = options;
 
-  const packages = await loadLernaPackages();
   const { plugins, loaders } = transforms(options);
   // Any package that is part of the monorepo but outside the monorepo root dir need
   // separate resolution logic.
-  const externalPkgs = packages.filter(
-    p => !isChildPath(paths.root, p.location),
-  );
 
-  const baseUrl = frontendConfig.getString('app.baseUrl');
-  const validBaseUrl = new URL(baseUrl);
+  const validBaseUrl = resolveBaseUrl(frontendConfig, moduleFederation);
+  let publicPath = validBaseUrl.pathname.replace(/\/$/, '');
+  if (publicSubPath) {
+    publicPath = `${publicPath}${publicSubPath}`.replace('//', '/');
+  }
+
+  if (isDev) {
+    const { host, port } = resolveEndpoint(
+      options.frontendConfig,
+      options.moduleFederation,
+    );
+
+    if (rspack) {
+      const RspackReactRefreshPlugin = require('@rspack/plugin-react-refresh');
+      plugins.push(new RspackReactRefreshPlugin());
+    } else {
+      plugins.push(
+        new ReactRefreshPlugin({
+          overlay: {
+            sockProtocol: 'ws',
+            sockHost: host,
+            sockPort: port,
+          },
+        }),
+      );
+    }
+  }
 
   if (checksEnabled) {
     plugins.push(
       new ForkTsCheckerWebpackPlugin({
-        typescript: paths.targetTsConfig,
-        eslint: true,
-        eslintOptions: {
-          files: ['**', '!**/__tests__/**', '!**/?(*.)(spec|test).*'],
-          options: {
-            parserOptions: {
-              project: paths.targetTsConfig,
-              tsconfigRootDir: paths.targetPath,
-            },
+        typescript: { configFile: paths.targetTsConfig, memoryLimit: 4096 },
+      }),
+      new ESLintPlugin({
+        context: paths.targetPath,
+        files: ['**/*.(ts|tsx|mts|cts|js|jsx|mjs|cjs)'],
+      }),
+    );
+  }
+
+  const bundler = rspack ? (rspack as unknown as typeof webpack) : webpack;
+
+  // TODO(blam): process is no longer auto polyfilled by webpack in v5.
+  // we use the provide plugin to provide this polyfill, but lets look
+  // to remove this eventually!
+  plugins.push(
+    new bundler.ProvidePlugin({
+      process: require.resolve('process/browser'),
+      Buffer: ['buffer', 'Buffer'],
+    }),
+  );
+
+  if (options.moduleFederation?.mode !== 'remote') {
+    const templateOptions = {
+      meta: {
+        'backstage-app-mode': options?.appMode ?? 'public',
+      },
+      template: paths.targetHtml,
+      templateParameters: {
+        publicPath,
+        config: frontendConfig,
+      },
+    };
+    if (rspack) {
+      // With Rspack we inject config via index.html, this is both because we
+      // can't use APP_CONFIG due to the lack of support for runtime values, but
+      // also because we are able to do it and it lines up better with what the
+      // app-backend is doing.
+      //
+      // We still use the html plugin from WebPack, since the Rspack one won't
+      // let us inject complex objects like the config.
+      plugins.push(
+        new ConfigInjectingHtmlWebpackPlugin(
+          templateOptions,
+          options.getFrontendAppConfigs,
+        ),
+      );
+    } else {
+      // Config injection via index.html doesn't work across reloads with
+      // WebPack, so we rely on the APP_CONFIG injection instead
+      plugins.push(new HtmlWebpackPlugin(templateOptions));
+    }
+    plugins.push(
+      new HtmlWebpackPlugin({
+        meta: {
+          'backstage-app-mode': options?.appMode ?? 'public',
+          // This is added to be written in the later step, and finally read by the extra entry point
+          'backstage-public-path': '<%= publicPath %>/',
+        },
+        minify: false,
+        publicPath: '<%= publicPath %>',
+        filename: 'index.html.tmpl',
+        template: `${require.resolve('raw-loader')}!${paths.targetHtml}`,
+      }),
+    );
+  }
+
+  if (options.moduleFederation) {
+    const isRemote = options.moduleFederation?.mode === 'remote';
+
+    const AdaptedModuleFederationPlugin = rspack
+      ? (rspack.container
+          .ModuleFederationPlugin as unknown as typeof ModuleFederationPlugin)
+      : ModuleFederationPlugin;
+
+    const exposes = options.moduleFederation?.exposes
+      ? Object.fromEntries(
+          Object.entries(options.moduleFederation?.exposes).map(([k, v]) => [
+            k,
+            resolvePath(paths.targetPath, v),
+          ]),
+        )
+      : {
+          '.': paths.targetEntry,
+        };
+
+    plugins.push(
+      new AdaptedModuleFederationPlugin({
+        ...(isRemote && {
+          filename: 'remoteEntry.js',
+          exposes,
+        }),
+        name: options.moduleFederation.name,
+        runtime: false,
+        shared: {
+          // React
+          react: {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          'react-dom': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          // React Router
+          'react-router': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          'react-router-dom': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          // MUI v4
+          '@material-ui/core/styles': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          '@material-ui/styles': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          // MUI v5
+          '@mui/material/styles/': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
+          },
+          '@emotion/react': {
+            singleton: true,
+            requiredVersion: '*',
+            eager: !isRemote,
           },
         },
       }),
     );
   }
 
-  // TODO(blam): process is no longer auto polyfilled by webpack in v5.
-  // we use the provide plugin to provide this polyfill, but lets look
-  // to remove this eventually!
-  plugins.push(
-    new ProvidePlugin({
-      process: 'process/browser',
-    }),
-  );
-
-  plugins.push(
-    new webpack.EnvironmentPlugin({
-      APP_CONFIG: options.frontendAppConfigs,
-    }),
-  );
-
-  plugins.push(
-    new HtmlWebpackPlugin({
-      template: paths.targetHtml,
-      templateParameters: {
-        publicPath: validBaseUrl.pathname.replace(/\/$/, ''),
-        app: {
-          title: frontendConfig.getString('app.title'),
-          baseUrl: validBaseUrl.href,
-          googleAnalyticsTrackingId: frontendConfig.getOptionalString(
-            'app.googleAnalyticsTrackingId',
-          ),
-          datadogRum: {
-            env: frontendConfig.getOptionalString('app.datadogRum.env'),
-            clientToken: frontendConfig.getOptionalString(
-              'app.datadogRum.clientToken',
-            ),
-            applicationId: frontendConfig.getOptionalString(
-              'app.datadogRum.applicationId',
-            ),
-            site: frontendConfig.getOptionalString('app.datadogRum.site'),
-          },
-        },
-      },
-    }),
-  );
-
   const buildInfo = await readBuildInfo();
+
   plugins.push(
-    new webpack.DefinePlugin({
+    new bundler.DefinePlugin({
       'process.env.BUILD_INFO': JSON.stringify(buildInfo),
+      'process.env.APP_CONFIG': rspack
+        ? JSON.stringify([]) // Inject via index.html instead
+        : bundler.DefinePlugin.runtimeValue(
+            () => JSON.stringify(options.getFrontendAppConfigs()),
+            true,
+          ),
+      // This allows for conditional imports of react-dom/client, since there's no way
+      // to check for presence of it in source code without module resolution errors.
+      'process.env.HAS_REACT_DOM_CLIENT': JSON.stringify(hasReactDomClient()),
     }),
   );
+
+  if (options.linkedWorkspace) {
+    plugins.push(
+      ...(await createWorkspaceLinkingPlugins(
+        bundler,
+        options.linkedWorkspace,
+      )),
+    );
+  }
+
+  // These files are required by the transpiled code when using React Refresh.
+  // They need to be excluded to the module scope plugin which ensures that files
+  // that exist in the package are required.
+  const reactRefreshFiles = rspack
+    ? []
+    : [
+        require.resolve(
+          '@pmmmwh/react-refresh-webpack-plugin/lib/runtime/RefreshUtils.js',
+        ),
+        require.resolve(
+          '@pmmmwh/react-refresh-webpack-plugin/overlay/index.js',
+        ),
+        require.resolve('react-refresh'),
+      ];
+
+  const mode = isDev ? 'development' : 'production';
+  const optimization = optimizationConfig(options);
+
+  if (
+    mode === 'production' &&
+    process.env.EXPERIMENTAL_MODULE_FEDERATION &&
+    process.env.FORCE_REACT_DEVELOPMENT
+  ) {
+    console.log(
+      chalk.yellow(
+        `⚠️  WARNING: Forcing react and react-dom into development mode. This build should not be used in production.`,
+      ),
+    );
+
+    const reactPackageDirs = [
+      `${dirname(require.resolve('react/package.json'))}/`,
+      `${dirname(require.resolve('react-dom/package.json'))}/`,
+    ];
+
+    // Don't define process.env.NODE_ENV with value matching config.mode. If we
+    // don't set this to false, webpack will define the value of
+    // process.env.NODE_ENV for us, and the definition below will be ignored.
+    optimization.nodeEnv = false;
+
+    // Instead, provide a custom definition which always uses "development" if
+    // the module is part of `react` or `react-dom`, and `config.mode` otherwise.
+    plugins.push(
+      new bundler.DefinePlugin({
+        'process.env.NODE_ENV': rspack
+          ? // FIXME: see also https://github.com/web-infra-dev/rspack/issues/5606
+            JSON.stringify(mode)
+          : webpack.DefinePlugin.runtimeValue(({ module }) => {
+              if (
+                reactPackageDirs.some(val => module.resource.startsWith(val))
+              ) {
+                return '"development"';
+              }
+
+              return `"${mode}"`;
+            }),
+      }),
+    );
+  }
+
+  const withCache = yn(process.env[BUILD_CACHE_ENV_VAR], { default: false });
 
   return {
-    mode: isDev ? 'development' : 'production',
+    mode,
     profile: false,
-    optimization: optimization(options),
+    ...(isDev
+      ? {
+          watchOptions: {
+            ignored: /node_modules\/(?!__backstage-autodetected-plugins__)/,
+          },
+        }
+      : {}),
+    optimization,
     bail: false,
     performance: {
       hints: false, // we check the gzip size instead
     },
     devtool: isDev ? 'eval-cheap-module-source-map' : 'source-map',
     context: paths.targetPath,
-    entry: [require.resolve('react-hot-loader/patch'), paths.targetEntry],
+    entry: [
+      require.resolve('@backstage/cli/config/webpack-public-path'),
+      ...(options.additionalEntryPoints ?? []),
+      paths.targetEntry,
+    ],
     resolve: {
-      extensions: ['.ts', '.tsx', '.mjs', '.js', '.jsx'],
+      extensions: ['.ts', '.tsx', '.mjs', '.js', '.jsx', '.json', '.wasm'],
       mainFields: ['browser', 'module', 'main'],
       fallback: {
+        ...pickBy(require('node-stdlib-browser')),
         module: false,
         dgram: false,
         dns: false,
@@ -191,24 +433,25 @@ export async function createConfig(
         http: false,
         util: require.resolve('util/'),
       },
-      plugins: [
-        new LinkedPackageResolvePlugin(paths.rootNodeModules, externalPkgs),
-        new ModuleScopePlugin(
-          [paths.targetSrc, paths.targetDev],
-          [paths.targetPackageJson],
-        ),
-      ],
-      alias: {
-        'react-dom': '@hot-loader/react-dom',
-      },
+      // FIXME: see also https://github.com/web-infra-dev/rspack/issues/3408
+      ...(!rspack && {
+        plugins: [
+          new ModuleScopePlugin(
+            [paths.targetSrc, paths.targetDev],
+            [paths.targetPackageJson, ...reactRefreshFiles],
+          ),
+        ],
+      }),
     },
     module: {
       rules: loaders,
     },
     output: {
+      uniqueName: options.moduleFederation?.name,
       path: paths.targetDist,
-      publicPath: validBaseUrl.pathname,
-      filename: isDev ? '[name].js' : 'static/[name].[hash:8].js',
+      publicPath:
+        options.moduleFederation?.mode === 'remote' ? 'auto' : `${publicPath}/`,
+      filename: isDev ? '[name].js' : 'static/[name].[fullhash:8].js',
       chunkFilename: isDev
         ? '[name].chunk.js'
         : 'static/[name].[chunkhash:8].chunk.js',
@@ -222,148 +465,21 @@ export async function createConfig(
           }
         : {}),
     },
+    experiments: {
+      lazyCompilation: !rspack && yn(process.env.EXPERIMENTAL_LAZY_COMPILATION),
+      ...(rspack && {
+        // We're still using `style-loader` for custom `insert` option
+        css: false,
+      }),
+    },
     plugins,
-  };
-}
-
-export async function createBackendConfig(
-  paths: BundlingPaths,
-  options: BackendBundlingOptions,
-): Promise<webpack.Configuration> {
-  const { checksEnabled, isDev } = options;
-
-  // Find all local monorepo packages and their node_modules, and mark them as external.
-  const packages = await await loadLernaPackages();
-  const localPackageNames = packages.map((p: any) => p.name);
-  const moduleDirs = packages.map((p: any) =>
-    resolvePath(p.location, 'node_modules'),
-  );
-  const externalPkgs = packages.filter(
-    p => !isChildPath(paths.root, p.location),
-  ); // See frontend config
-
-  const { loaders } = transforms(options);
-
-  return {
-    mode: isDev ? 'development' : 'production',
-    profile: false,
-    ...(isDev
-      ? {
-          watch: true,
-          watchOptions: {
-            ignored: /node_modules\/(?!\@backstage)/,
-          },
-        }
-      : {}),
-    externals: [
-      nodeExternalsWithResolve({
-        modulesDir: paths.rootNodeModules,
-        additionalModuleDirs: moduleDirs,
-        allowlist: ['webpack/hot/poll?100', ...localPackageNames],
-      }),
-    ],
-    target: 'node' as const,
-    node: {
-      /* eslint-disable-next-line no-restricted-syntax */
-      __dirname: true,
-      __filename: true,
-      global: true,
-    },
-    bail: false,
-    performance: {
-      hints: false, // we check the gzip size instead
-    },
-    devtool: isDev ? 'eval-cheap-module-source-map' : 'source-map',
-    context: paths.targetPath,
-    entry: [
-      'webpack/hot/poll?100',
-      paths.targetRunFile ? paths.targetRunFile : paths.targetEntry,
-    ],
-    resolve: {
-      extensions: ['.ts', '.tsx', '.mjs', '.js', '.jsx'],
-      mainFields: ['browser', 'module', 'main'],
-      modules: [paths.rootNodeModules, ...moduleDirs],
-      plugins: [
-        new LinkedPackageResolvePlugin(paths.rootNodeModules, externalPkgs),
-        new ModuleScopePlugin(
-          [paths.targetSrc, paths.targetDev],
-          [paths.targetPackageJson],
-        ),
-      ],
-      alias: {
-        'react-dom': '@hot-loader/react-dom',
+    ...(withCache && {
+      cache: {
+        type: 'filesystem',
+        buildDependencies: {
+          config: [__filename],
+        },
       },
-    },
-    module: {
-      rules: loaders,
-    },
-    output: {
-      path: paths.targetDist,
-      filename: isDev ? '[name].js' : '[name].[hash:8].js',
-      chunkFilename: isDev
-        ? '[name].chunk.js'
-        : '[name].[chunkhash:8].chunk.js',
-      ...(isDev
-        ? {
-            devtoolModuleFilenameTemplate: (info: any) =>
-              `file:///${resolvePath(info.absoluteResourcePath).replace(
-                /\\/g,
-                '/',
-              )}`,
-          }
-        : {}),
-    },
-    plugins: [
-      new RunScriptWebpackPlugin({
-        name: 'main.js',
-        nodeArgs: options.inspectEnabled ? ['--inspect'] : undefined,
-      }),
-      new webpack.HotModuleReplacementPlugin(),
-      ...(checksEnabled
-        ? [
-            new ForkTsCheckerWebpackPlugin({
-              typescript: paths.targetTsConfig,
-              eslint: true,
-              eslintOptions: {
-                files: ['**', '!**/__tests__/**', '!**/?(*.)(spec|test).*'],
-                options: {
-                  parserOptions: {
-                    project: paths.targetTsConfig,
-                    tsconfigRootDir: paths.targetPath,
-                  },
-                },
-              },
-            }),
-          ]
-        : []),
-    ],
-  };
-}
-
-// This makes the module resolution happen from the context of each non-external module, rather
-// than the main entrypoint. This fixes a bug where dependencies would be resolved from the backend
-// package rather than each individual backend package and plugin.
-//
-// TODO(Rugvip): Feature suggestion/contribute this to webpack-externals
-function nodeExternalsWithResolve(
-  options: Parameters<typeof nodeExternals>[0],
-) {
-  let currentContext: string;
-  const externals = nodeExternals({
-    ...options,
-    importType(request) {
-      const resolved = require.resolve(request, {
-        paths: [currentContext],
-      });
-      return `commonjs ${resolved}`;
-    },
-  });
-
-  return (
-    { context, request }: { context?: string; request?: string },
-    callback: any,
-  ) => {
-    currentContext = context!;
-    return externals(context, request, callback);
+    }),
   };
 }

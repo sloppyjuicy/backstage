@@ -16,39 +16,34 @@
 
 import { Entity, RELATION_CONSUMES_API } from '@backstage/catalog-model';
 import {
-  CatalogApi,
   catalogApiRef,
   EntityProvider,
+  entityRouteRef,
 } from '@backstage/plugin-catalog-react';
-import { renderInTestApp } from '@backstage/test-utils';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
 import { waitFor } from '@testing-library/react';
 import React from 'react';
 import { ApiDocsConfig, apiDocsConfigRef } from '../../config';
 import { ConsumedApisCard } from './ConsumedApisCard';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
 
 describe('<ConsumedApisCard />', () => {
   const apiDocsConfig: jest.Mocked<ApiDocsConfig> = {
     getApiDefinitionWidget: jest.fn(),
   } as any;
-  const catalogApi: jest.Mocked<CatalogApi> = {
-    getLocationById: jest.fn(),
-    getEntityByName: jest.fn(),
-    getEntities: jest.fn(),
-    addLocation: jest.fn(),
-    getLocationByEntity: jest.fn(),
-    removeEntityByUid: jest.fn(),
-  } as any;
-  let Wrapper: React.ComponentType;
+  const catalogApi = catalogApiMock.mock();
+  let Wrapper: React.ComponentType<React.PropsWithChildren<{}>>;
 
   beforeEach(() => {
-    const apis = ApiRegistry.with(catalogApiRef, catalogApi).with(
-      apiDocsConfigRef,
-      apiDocsConfig,
-    );
-
     Wrapper = ({ children }: { children?: React.ReactNode }) => (
-      <ApiProvider apis={apis}>{children}</ApiProvider>
+      <TestApiProvider
+        apis={[
+          [catalogApiRef, catalogApi],
+          [apiDocsConfigRef, apiDocsConfig],
+        ]}
+      >
+        {children}
+      </TestApiProvider>
     );
   });
 
@@ -65,16 +60,32 @@ describe('<ConsumedApisCard />', () => {
       relations: [],
     };
 
-    const { getByText } = await renderInTestApp(
+    const { getByText, getByRole, container } = await renderInTestApp(
       <Wrapper>
         <EntityProvider entity={entity}>
           <ConsumedApisCard />
         </EntityProvider>
       </Wrapper>,
+      {
+        mountedRoutes: {
+          '/catalog/:namespace/:kind/:name': entityRouteRef,
+        },
+      },
     );
 
     expect(getByText(/Consumed APIs/i)).toBeInTheDocument();
     expect(getByText(/does not consume any APIs/i)).toBeInTheDocument();
+
+    // Also render external link icon
+    const externalLink = getByRole('link');
+    expect(externalLink).toHaveAttribute(
+      'href',
+      'https://backstage.io/docs/features/software-catalog/descriptor-format#specconsumesapis-optional',
+    );
+    const externalLinkIcon: HTMLElement | null = container.querySelector(
+      'svg[class*="externalLink"]',
+    );
+    expect(externalLink).toContainElement(externalLinkIcon);
   });
 
   it('shows consumed APIs', async () => {
@@ -87,16 +98,12 @@ describe('<ConsumedApisCard />', () => {
       },
       relations: [
         {
-          target: {
-            kind: 'API',
-            namespace: 'my-namespace',
-            name: 'target-name',
-          },
+          targetRef: 'api:my-namespace/target-name',
           type: RELATION_CONSUMES_API,
         },
       ],
     };
-    catalogApi.getEntities.mockResolvedValue({
+    catalogApi.getEntitiesByRefs.mockResolvedValue({
       items: [
         {
           apiVersion: 'v1',
@@ -116,6 +123,11 @@ describe('<ConsumedApisCard />', () => {
           <ConsumedApisCard />
         </EntityProvider>
       </Wrapper>,
+      {
+        mountedRoutes: {
+          '/catalog/:namespace/:kind/:name': entityRouteRef,
+        },
+      },
     );
 
     await waitFor(() => {

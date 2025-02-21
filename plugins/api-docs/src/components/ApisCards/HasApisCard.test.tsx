@@ -16,39 +16,34 @@
 
 import { Entity, RELATION_HAS_PART } from '@backstage/catalog-model';
 import {
-  CatalogApi,
   catalogApiRef,
   EntityProvider,
+  entityRouteRef,
 } from '@backstage/plugin-catalog-react';
-import { renderInTestApp } from '@backstage/test-utils';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
 import { waitFor } from '@testing-library/react';
 import React from 'react';
 import { ApiDocsConfig, apiDocsConfigRef } from '../../config';
 import { HasApisCard } from './HasApisCard';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
 
 describe('<HasApisCard />', () => {
   const apiDocsConfig: jest.Mocked<ApiDocsConfig> = {
     getApiDefinitionWidget: jest.fn(),
   } as any;
-  const catalogApi: jest.Mocked<CatalogApi> = {
-    getLocationById: jest.fn(),
-    getEntityByName: jest.fn(),
-    getEntities: jest.fn(),
-    addLocation: jest.fn(),
-    getLocationByEntity: jest.fn(),
-    removeEntityByUid: jest.fn(),
-  } as any;
-  let Wrapper: React.ComponentType;
+  const catalogApi = catalogApiMock.mock();
+  let Wrapper: React.ComponentType<React.PropsWithChildren<{}>>;
 
   beforeEach(() => {
-    const apis = ApiRegistry.with(catalogApiRef, catalogApi).with(
-      apiDocsConfigRef,
-      apiDocsConfig,
-    );
-
     Wrapper = ({ children }: { children?: React.ReactNode }) => (
-      <ApiProvider apis={apis}>{children}</ApiProvider>
+      <TestApiProvider
+        apis={[
+          [catalogApiRef, catalogApi],
+          [apiDocsConfigRef, apiDocsConfig],
+        ]}
+      >
+        {children}
+      </TestApiProvider>
     );
   });
 
@@ -71,6 +66,11 @@ describe('<HasApisCard />', () => {
           <HasApisCard />
         </EntityProvider>
       </Wrapper>,
+      {
+        mountedRoutes: {
+          '/catalog/:namespace/:kind/:name': entityRouteRef,
+        },
+      },
     );
 
     expect(getByText('APIs')).toBeInTheDocument();
@@ -87,16 +87,12 @@ describe('<HasApisCard />', () => {
       },
       relations: [
         {
-          target: {
-            kind: 'API',
-            namespace: 'my-namespace',
-            name: 'target-name',
-          },
+          targetRef: 'api:my-namespace/target-name',
           type: RELATION_HAS_PART,
         },
       ],
     };
-    catalogApi.getEntities.mockResolvedValue({
+    catalogApi.getEntitiesByRefs.mockResolvedValue({
       items: [
         {
           apiVersion: 'v1',
@@ -116,6 +112,11 @@ describe('<HasApisCard />', () => {
           <HasApisCard />
         </EntityProvider>
       </Wrapper>,
+      {
+        mountedRoutes: {
+          '/catalog/:namespace/:kind/:name': entityRouteRef,
+        },
+      },
     );
 
     await waitFor(() => {

@@ -16,20 +16,47 @@
 
 /**
  * The namespace that entities without an explicit namespace fall into.
+ *
+ * @public
  */
-export const ENTITY_DEFAULT_NAMESPACE = 'default';
+export const DEFAULT_NAMESPACE = 'default';
 
 /**
- * The keys of EntityMeta that are auto-generated.
+ * Annotation for linking to entity page from catalog pages.
+ *
+ * @public
  */
-export const ENTITY_META_GENERATED_FIELDS = [
-  'uid',
-  'etag',
-  'generation',
-] as const;
+export const ANNOTATION_VIEW_URL = 'backstage.io/view-url';
 
 /**
- * Annotations for linking to entity from catalog pages.
+ * Annotation for linking to entity edit page from catalog pages.
+ *
+ * @public
  */
-export const VIEW_URL_ANNOTATION = 'backstage.io/view-url';
-export const EDIT_URL_ANNOTATION = 'backstage.io/edit-url';
+export const ANNOTATION_EDIT_URL = 'backstage.io/edit-url';
+
+/**
+ * Annotation for specifying the API server of a Kubernetes cluster
+ *
+ * @deprecated Import this constant from `@backstage/plugin-kubernetes-common` instead
+ * @public
+ */
+export const ANNOTATION_KUBERNETES_API_SERVER = 'kubernetes.io/api-server';
+
+/**
+ * Annotation for specifying the Certificate Authority of an API server for a Kubernetes cluster
+ *
+ * @deprecated Import this constant from `@backstage/plugin-kubernetes-common` instead
+ * @public
+ */
+export const ANNOTATION_KUBERNETES_API_SERVER_CA =
+  'kubernetes.io/api-server-certificate-authority';
+
+/**
+ * Annotation for specifying the auth provider for a Kubernetes cluster
+ *
+ * @deprecated Import this constant from `@backstage/plugin-kubernetes-common` instead
+ * @public
+ */
+export const ANNOTATION_KUBERNETES_AUTH_PROVIDER =
+  'kubernetes.io/auth-provider';

@@ -16,34 +16,91 @@
 
 import {
   IndexableDocument,
+  IndexableResult,
+  IndexableResultSet,
   SearchQuery,
-  SearchResultSet,
-  SearchEngine,
-} from '@backstage/search-common';
-import { Logger } from 'winston';
-import esb from 'elastic-builder';
-import { Client } from '@elastic/elasticsearch';
+} from '@backstage/plugin-search-common';
+import { SearchEngine } from '@backstage/plugin-search-backend-node';
+import { isEmpty, isNumber, isNaN as nan } from 'lodash';
+
+import { AwsSigv4Signer } from '@opensearch-project/opensearch/aws';
+import { RequestSigner } from 'aws4';
 import { Config } from '@backstage/config';
 import {
-  createAWSConnection,
-  awsGetCredentials,
-} from '@acuris/aws-es-connection';
-import { isEmpty, isNaN as nan, isNumber } from 'lodash';
+  ElasticSearchClientOptions,
+  OpenSearchElasticSearchClientOptions,
+} from './ElasticSearchClientOptions';
+import { ElasticSearchClientWrapper } from './ElasticSearchClientWrapper';
+import { ElasticSearchCustomIndexTemplate } from './types';
+import { ElasticSearchSearchEngineIndexer } from './ElasticSearchSearchEngineIndexer';
+import { MissingIndexError } from '@backstage/plugin-search-backend-node';
+import esb from 'elastic-builder';
+import { v4 as uuid } from 'uuid';
+import {
+  AwsCredentialProvider,
+  DefaultAwsCredentialsManager,
+} from '@backstage/integration-aws-node';
+import { LoggerService } from '@backstage/backend-plugin-api';
 
-export type ConcreteElasticSearchQuery = {
+export type { ElasticSearchClientOptions };
+
+/**
+ * Search query that the elasticsearch engine understands.
+ * @public
+ */
+export type ElasticSearchConcreteQuery = {
   documentTypes?: string[];
   elasticSearchQuery: Object;
+  pageSize: number;
 };
 
-type ElasticSearchQueryTranslator = (
-  query: SearchQuery,
-) => ConcreteElasticSearchQuery;
+/**
+ * Options available for the Elasticsearch specific query translator.
+ * @public
+ */
+export type ElasticSearchQueryTranslatorOptions = {
+  highlightOptions?: ElasticSearchHighlightConfig;
+};
 
-type ElasticSearchOptions = {
-  logger: Logger;
+/**
+ * Elasticsearch specific query translator.
+ * @public
+ */
+export type ElasticSearchQueryTranslator = (
+  query: SearchQuery,
+  options?: ElasticSearchQueryTranslatorOptions,
+) => ElasticSearchConcreteQuery;
+
+/**
+ * Options for instantiate ElasticSearchSearchEngine
+ * @public
+ */
+export type ElasticSearchOptions = {
+  logger: LoggerService;
   config: Config;
   aliasPostfix?: string;
   indexPrefix?: string;
+  translator?: ElasticSearchQueryTranslator;
+};
+
+/**
+ * @public
+ */
+export type ElasticSearchHighlightOptions = {
+  fragmentDelimiter?: string;
+  fragmentSize?: number;
+  numFragments?: number;
+};
+
+/**
+ * @public
+ */
+export type ElasticSearchHighlightConfig = {
+  fragmentDelimiter: string;
+  fragmentSize: number;
+  numFragments: number;
+  preTag: string;
+  postTag: string;
 };
 
 type ElasticSearchResult = {
@@ -51,132 +108,196 @@ type ElasticSearchResult = {
   _type: string;
   _score: number;
   _source: IndexableDocument;
+  highlight?: {
+    [field: string]: string[];
+  };
 };
-
-function duration(startTimestamp: [number, number]): string {
-  const delta = process.hrtime(startTimestamp);
-  const seconds = delta[0] + delta[1] / 1e9;
-  return `${seconds.toFixed(1)}s`;
-}
 
 function isBlank(str: string) {
   return (isEmpty(str) && !isNumber(str)) || nan(str);
 }
 
+const DEFAULT_INDEXER_BATCH_SIZE = 1000;
+
+/**
+ * @public
+ */
 export class ElasticSearchSearchEngine implements SearchEngine {
+  private readonly elasticSearchClientWrapper: ElasticSearchClientWrapper;
+  private readonly highlightOptions: ElasticSearchHighlightConfig;
+
   constructor(
-    private readonly elasticSearchClient: Client,
+    private readonly elasticSearchClientOptions: ElasticSearchClientOptions,
     private readonly aliasPostfix: string,
     private readonly indexPrefix: string,
-    private readonly logger: Logger,
-  ) {}
+    private readonly logger: LoggerService,
+    private readonly batchSize: number,
+    highlightOptions?: ElasticSearchHighlightOptions,
+  ) {
+    this.elasticSearchClientWrapper =
+      ElasticSearchClientWrapper.fromClientOptions(elasticSearchClientOptions);
+    const uuidTag = uuid();
+    this.highlightOptions = {
+      preTag: `<${uuidTag}>`,
+      postTag: `</${uuidTag}>`,
+      fragmentSize: 1000,
+      numFragments: 1,
+      fragmentDelimiter: ' ... ',
+      ...highlightOptions,
+    };
+  }
 
-  static async fromConfig({
-    logger,
-    config,
-    aliasPostfix = `search`,
-    indexPrefix = ``,
-  }: ElasticSearchOptions) {
-    return new ElasticSearchSearchEngine(
-      await ElasticSearchSearchEngine.constructElasticSearchClient(
-        logger,
-        config.getConfig('search.elasticsearch'),
-      ),
+  static async fromConfig(options: ElasticSearchOptions) {
+    const {
+      logger,
+      config,
+      aliasPostfix = `search`,
+      indexPrefix = ``,
+      translator,
+    } = options;
+    const credentialProvider = DefaultAwsCredentialsManager.fromConfig(config);
+    const clientOptions = await this.createElasticSearchClientOptions(
+      await credentialProvider?.getCredentialProvider(),
+      config.getConfig('search.elasticsearch'),
+    );
+    if (clientOptions.provider === 'elastic') {
+      logger.info('Initializing Elastic.co ElasticSearch search engine.');
+    } else if (clientOptions.provider === 'aws') {
+      logger.info('Initializing AWS OpenSearch search engine.');
+    } else if (clientOptions.provider === 'opensearch') {
+      logger.info('Initializing OpenSearch search engine.');
+    } else {
+      logger.info('Initializing ElasticSearch search engine.');
+    }
+
+    const engine = new ElasticSearchSearchEngine(
+      clientOptions,
       aliasPostfix,
       indexPrefix,
       logger,
+      config.getOptionalNumber('search.elasticsearch.batchSize') ??
+        DEFAULT_INDEXER_BATCH_SIZE,
+      config.getOptional<ElasticSearchHighlightOptions>(
+        'search.elasticsearch.highlightOptions',
+      ),
     );
+
+    for (const indexTemplate of this.readIndexTemplateConfig(
+      config.getConfig('search.elasticsearch'),
+    )) {
+      await engine.setIndexTemplate(indexTemplate);
+    }
+
+    if (translator) {
+      await engine.setTranslator(translator);
+    }
+
+    return engine;
   }
 
-  private static async constructElasticSearchClient(
-    logger: Logger,
-    config?: Config,
-  ) {
-    if (!config) {
-      throw new Error('No elastic search config found');
-    }
-
-    if (config.getOptionalString('provider') === 'elastic') {
-      logger.info('Initializing Elastic.co ElasticSearch search engine.');
-      const authConfig = config.getConfig('auth');
-      return new Client({
-        cloud: {
-          id: config.getString('cloudId'),
-        },
-        auth: {
-          username: authConfig.getString('username'),
-          password: authConfig.getString('password'),
-        },
-      });
-    }
-    if (config.getOptionalString('provider') === 'aws') {
-      logger.info('Initializing AWS ElasticSearch search engine.');
-      const awsCredentials = await awsGetCredentials();
-      const AWSConnection = createAWSConnection(awsCredentials);
-      return new Client({
-        node: config.getString('node'),
-        ...AWSConnection,
-      });
-    }
-    logger.info('Initializing ElasticSearch search engine.');
-    const authConfig = config.getOptionalConfig('auth');
-    const auth =
-      authConfig &&
-      (authConfig.has('apiKey')
-        ? {
-            apiKey: authConfig.getString('apiKey'),
-          }
-        : {
-            username: authConfig.getString('username'),
-            password: authConfig.getString('password'),
-          });
-    return new Client({
-      node: config.getString('node'),
-      auth,
-    });
+  /**
+   * Create a custom search client from the derived search client configuration.
+   * This need not be the same client that the engine uses internally.
+   *
+   * @example Instantiate an instance of an Elasticsearch client.
+   *
+   * ```ts
+   * import { isOpenSearchCompatible } from '@backstage/plugin-search-backend-module-elasticsearch';
+   * import { Client } from '@elastic/elasticsearch';
+   *
+   * const client = searchEngine.newClient<Client>(options => {
+   *   // This type guard ensures options are compatible with either OpenSearch
+   *   // or Elasticsearch client constructors.
+   *   if (!isOpenSearchCompatible(options)) {
+   *     return new Client(options);
+   *   }
+   *   throw new Error('Incompatible options provided');
+   * });
+   * ```
+   */
+  newClient<T>(create: (options: ElasticSearchClientOptions) => T): T {
+    return create(this.elasticSearchClientOptions);
   }
 
-  protected translator({
-    term,
-    filters = {},
-    types,
-  }: SearchQuery): ConcreteElasticSearchQuery {
+  protected translator(
+    query: SearchQuery,
+    options?: ElasticSearchQueryTranslatorOptions,
+  ): ElasticSearchConcreteQuery {
+    const { term, filters = {}, types, pageCursor } = query;
+
     const filter = Object.entries(filters)
       .filter(([_, value]) => Boolean(value))
       .map(([key, value]: [key: string, value: any]) => {
         if (['string', 'number', 'boolean'].includes(typeof value)) {
-          return esb.matchQuery(key, value.toString());
+          // Use exact matching for string datatype fields
+          const keyword = typeof value === 'string' ? `${key}.keyword` : key;
+          return esb.matchQuery(keyword, value.toString());
         }
         if (Array.isArray(value)) {
           return esb
             .boolQuery()
             .should(value.map(it => esb.matchQuery(key, it.toString())));
         }
-        this.logger.error(
-          'Failed to query, unrecognized filter type',
+        this.logger.error('Failed to query, unrecognized filter type', {
           key,
           value,
-        );
+        });
         throw new Error(
           'Failed to add filters to query. Unrecognized filter type',
         );
       });
-    const query = isBlank(term)
-      ? esb.matchAllQuery()
-      : esb
-          .multiMatchQuery(['*'], term)
-          .fuzziness('auto')
-          .minimumShouldMatch(1);
+
+    const esbQueries = [];
+    // https://regex101.com/r/Lr0MqS/1
+    const phraseTerms = term.match(/"[^"]*"/g);
+
+    if (isBlank(term)) {
+      const esbQuery = esb.matchAllQuery();
+      esbQueries.push(esbQuery);
+    } else if (phraseTerms && phraseTerms.length > 0) {
+      let restTerm = term;
+      for (const phraseTerm of phraseTerms) {
+        restTerm = restTerm.replace(phraseTerm, '');
+        const esbPhraseQuery = esb
+          .multiMatchQuery(['*'], phraseTerm.replace(/"/g, ''))
+          .type('phrase');
+        esbQueries.push(esbPhraseQuery);
+      }
+      if (restTerm?.length > 0) {
+        const esbRestQuery = esb
+          .multiMatchQuery(['*'], restTerm.trim())
+          .fuzziness('auto');
+        esbQueries.push(esbRestQuery);
+      }
+    } else {
+      const esbQuery = esb.multiMatchQuery(['*'], term).fuzziness('auto');
+      esbQueries.push(esbQuery);
+    }
+
+    const pageSize = query.pageLimit || 25;
+    const { page } = decodePageCursor(pageCursor);
+
+    let esbRequestBodySearch = esb
+      .requestBodySearch()
+      .query(esb.boolQuery().filter(filter).should(esbQueries))
+      .from(page * pageSize)
+      .size(pageSize);
+
+    if (options?.highlightOptions) {
+      esbRequestBodySearch = esbRequestBodySearch.highlight(
+        esb
+          .highlight('*')
+          .numberOfFragments(options.highlightOptions.numFragments as number)
+          .fragmentSize(options.highlightOptions.fragmentSize as number)
+          .preTags(options.highlightOptions.preTag)
+          .postTags(options.highlightOptions.postTag),
+      );
+    }
 
     return {
-      elasticSearchQuery: esb
-        .requestBodySearch()
-        .query(esb.boolQuery().filter(filter).must([query]))
-        // TODO: Replace size limit with page cursor after pagination approach decided
-        // See: https://github.com/backstage/backstage/issues/6062
-        .size(100)
-        .toJSON(),
+      elasticSearchQuery: esbRequestBodySearch.toJSON(),
       documentTypes: types,
+      pageSize,
     };
   }
 
@@ -184,99 +305,152 @@ export class ElasticSearchSearchEngine implements SearchEngine {
     this.translator = translator;
   }
 
-  async index(type: string, documents: IndexableDocument[]): Promise<void> {
-    this.logger.info(
-      `Started indexing ${documents.length} documents for index ${type}`,
-    );
-    const startTimestamp = process.hrtime();
-    const alias = this.constructSearchAlias(type);
-    const index = this.constructIndexName(type, `${Date.now()}`);
+  async setIndexTemplate(template: ElasticSearchCustomIndexTemplate) {
     try {
-      const aliases = await this.elasticSearchClient.cat.aliases({
-        format: 'json',
-        name: alias,
-      });
-      const removableIndices = aliases.body.map(
-        (r: Record<string, any>) => r.index,
-      );
-
-      await this.elasticSearchClient.indices.create({
-        index,
-      });
-      const result = await this.elasticSearchClient.helpers.bulk({
-        datasource: documents,
-        onDocument() {
-          return {
-            index: { _index: index },
-          };
-        },
-        refreshOnCompletion: index,
-      });
-
-      this.logger.info(
-        `Indexing completed for index ${type} in ${duration(startTimestamp)}`,
-        result,
-      );
-      await this.elasticSearchClient.indices.updateAliases({
-        body: {
-          actions: [
-            { remove: { index: this.constructIndexName(type, '*'), alias } },
-            { add: { index, alias } },
-          ],
-        },
-      });
-
-      this.logger.info('Removing stale search indices', removableIndices);
-      if (removableIndices.length) {
-        await this.elasticSearchClient.indices.delete({
-          index: removableIndices,
-        });
-      }
-    } catch (e) {
-      this.logger.error(`Failed to index documents for type ${type}`, e);
-      const response = await this.elasticSearchClient.indices.exists({
-        index,
-      });
-      const indexCreated = response.body;
-      if (indexCreated) {
-        this.logger.info(`Removing created index ${index}`);
-        await this.elasticSearchClient.indices.delete({
-          index,
-        });
-      }
+      await this.elasticSearchClientWrapper.putIndexTemplate(template);
+      this.logger.info('Custom index template set');
+    } catch (error) {
+      this.logger.error(`Unable to set custom index template: ${error}`);
     }
   }
 
-  async query(query: SearchQuery): Promise<SearchResultSet> {
-    const { elasticSearchQuery, documentTypes } = this.translator(query);
+  async getIndexer(type: string) {
+    const alias = this.constructSearchAlias(type);
+    const indexerLogger = this.logger.child({ documentType: type });
+
+    const indexer = new ElasticSearchSearchEngineIndexer({
+      type,
+      indexPrefix: this.indexPrefix,
+      indexSeparator: this.indexSeparator,
+      alias,
+      elasticSearchClientWrapper: this.elasticSearchClientWrapper,
+      logger: indexerLogger,
+      batchSize: this.batchSize,
+      skipRefresh:
+        (
+          this
+            .elasticSearchClientOptions as OpenSearchElasticSearchClientOptions
+        )?.service === 'aoss',
+    });
+
+    // Attempt cleanup upon failure.
+    // todo(@backstage/search-maintainers): Consider introducing a more
+    // formal mechanism for handling such errors in BatchSearchEngineIndexer and
+    // replacing this handler with it. See: #17291
+    indexer.on('error', async e => {
+      indexerLogger.error(`Failed to index documents for type ${type}`, e);
+      let cleanupError: Error | undefined;
+
+      // In some cases, a failure may have occurred before the indexer was able
+      // to complete initialization. Try up to 5 times to remove the dangling
+      // index.
+      await new Promise<void>(async done => {
+        const maxAttempts = 5;
+        let attempts = 0;
+
+        while (attempts < maxAttempts) {
+          try {
+            await this.elasticSearchClientWrapper.deleteIndex({
+              index: indexer.indexName,
+            });
+
+            attempts = maxAttempts;
+            cleanupError = undefined;
+            done();
+          } catch (err) {
+            cleanupError = err;
+          }
+
+          // Wait 1 second between retries.
+          await new Promise(okay => setTimeout(okay, 1000));
+
+          attempts++;
+        }
+        done();
+      });
+
+      if (cleanupError) {
+        indexerLogger.error(
+          `Unable to clean up elastic index ${indexer.indexName}: ${cleanupError}`,
+        );
+      } else {
+        indexerLogger.info(
+          `Removed partial, failed index ${indexer.indexName}`,
+        );
+      }
+    });
+
+    return indexer;
+  }
+
+  async query(query: SearchQuery): Promise<IndexableResultSet> {
+    const { elasticSearchQuery, documentTypes, pageSize } = this.translator(
+      query,
+      { highlightOptions: this.highlightOptions },
+    );
     const queryIndices = documentTypes
       ? documentTypes.map(it => this.constructSearchAlias(it))
       : this.constructSearchAlias('*');
     try {
-      const result = await this.elasticSearchClient.search({
+      const result = await this.elasticSearchClientWrapper.search({
         index: queryIndices,
         body: elasticSearchQuery,
       });
+      const { page } = decodePageCursor(query.pageCursor);
+      const hasNextPage = result.body.hits.total.value > (page + 1) * pageSize;
+      const hasPreviousPage = page > 0;
+      const nextPageCursor = hasNextPage
+        ? encodePageCursor({ page: page + 1 })
+        : undefined;
+      const previousPageCursor = hasPreviousPage
+        ? encodePageCursor({ page: page - 1 })
+        : undefined;
+
       return {
-        results: result.body.hits.hits.map((d: ElasticSearchResult) => ({
-          type: this.getTypeFromIndex(d._index),
-          document: d._source,
-        })),
+        results: result.body.hits.hits.map(
+          (d: ElasticSearchResult, index: number) => {
+            const resultItem: IndexableResult = {
+              type: this.getTypeFromIndex(d._index),
+              document: d._source,
+              rank: pageSize * page + index + 1,
+            };
+
+            if (d.highlight) {
+              resultItem.highlight = {
+                preTag: this.highlightOptions.preTag as string,
+                postTag: this.highlightOptions.postTag as string,
+                fields: Object.fromEntries(
+                  Object.entries(d.highlight).map(([field, fragments]) => [
+                    field,
+                    fragments.join(this.highlightOptions.fragmentDelimiter),
+                  ]),
+                ),
+              };
+            }
+
+            return resultItem;
+          },
+        ),
+        nextPageCursor,
+        previousPageCursor,
+        numberOfResults: result.body.hits.total.value,
       };
-    } catch (e) {
+    } catch (error) {
+      if (error.meta?.body?.error?.type === 'index_not_found_exception') {
+        throw new MissingIndexError(
+          `Missing index for ${queryIndices}. This means there are no documents to search through.`,
+          error,
+        );
+      }
       this.logger.error(
         `Failed to query documents for indices ${queryIndices}`,
-        e,
+        error,
       );
       return Promise.reject({ results: [] });
     }
   }
 
   private readonly indexSeparator = '-index__';
-
-  private constructIndexName(type: string, postFix: string) {
-    return `${this.indexPrefix}${type}${this.indexSeparator}${postFix}`;
-  }
 
   private getTypeFromIndex(index: string) {
     return index
@@ -288,4 +462,141 @@ export class ElasticSearchSearchEngine implements SearchEngine {
     const postFix = this.aliasPostfix ? `__${this.aliasPostfix}` : '';
     return `${this.indexPrefix}${type}${postFix}`;
   }
+
+  private static async createElasticSearchClientOptions(
+    credentialProvider: AwsCredentialProvider,
+    config?: Config,
+  ): Promise<ElasticSearchClientOptions> {
+    if (!config) {
+      throw new Error('No elastic search config found');
+    }
+    const clientOptionsConfig = config.getOptionalConfig('clientOptions');
+    const sslConfig = clientOptionsConfig?.getOptionalConfig('ssl');
+
+    if (config.getOptionalString('provider') === 'elastic') {
+      const authConfig = config.getConfig('auth');
+      return {
+        provider: 'elastic',
+        cloud: {
+          id: config.getString('cloudId'),
+        },
+        auth: {
+          username: authConfig.getString('username'),
+          password: authConfig.getString('password'),
+        },
+        ...(sslConfig
+          ? {
+              ssl: {
+                rejectUnauthorized:
+                  sslConfig?.getOptionalBoolean('rejectUnauthorized'),
+              },
+            }
+          : {}),
+      };
+    }
+    if (config.getOptionalString('provider') === 'aws') {
+      const requestSigner = new RequestSigner(config.getString('node'));
+      const service =
+        config.getOptionalString('service') ?? requestSigner.service;
+      if (service !== 'es' && service !== 'aoss')
+        throw new Error(`Unrecognized serivce type: ${service}`);
+      return {
+        provider: 'aws',
+        node: config.getString('node'),
+        region: config.getOptionalString('region'),
+        service,
+        ...(sslConfig
+          ? {
+              ssl: {
+                rejectUnauthorized:
+                  sslConfig?.getOptionalBoolean('rejectUnauthorized'),
+              },
+            }
+          : {}),
+        ...AwsSigv4Signer({
+          region: config.getOptionalString('region') ?? requestSigner.region, // for backwards compatibility
+          service: service,
+          getCredentials: async () =>
+            await credentialProvider.sdkCredentialProvider(),
+        }),
+      };
+    }
+    if (config.getOptionalString('provider') === 'opensearch') {
+      const authConfig = config.getConfig('auth');
+      return {
+        provider: 'opensearch',
+        node: config.getString('node'),
+        auth: {
+          username: authConfig.getString('username'),
+          password: authConfig.getString('password'),
+        },
+        ...(sslConfig
+          ? {
+              ssl: {
+                rejectUnauthorized:
+                  sslConfig?.getOptionalBoolean('rejectUnauthorized'),
+              },
+            }
+          : {}),
+      };
+    }
+    const authConfig = config.getOptionalConfig('auth');
+    const auth =
+      authConfig &&
+      (authConfig.has('apiKey')
+        ? {
+            apiKey: authConfig.getString('apiKey'),
+          }
+        : {
+            username: authConfig.getString('username'),
+            password: authConfig.getString('password'),
+          });
+    return {
+      node: config.getString('node'),
+      auth,
+      ...(sslConfig
+        ? {
+            ssl: {
+              rejectUnauthorized:
+                sslConfig?.getOptionalBoolean('rejectUnauthorized'),
+            },
+          }
+        : {}),
+    };
+  }
+
+  private static readIndexTemplateConfig(
+    config: Config,
+  ): ElasticSearchCustomIndexTemplate[] {
+    return (
+      config.getOptionalConfigArray('indexTemplates')?.map(templateConfig => {
+        const bodyConfig = templateConfig.getConfig('body');
+        return {
+          name: templateConfig.getString('name'),
+          body: {
+            index_patterns: bodyConfig.getStringArray('index_patterns'),
+            composed_of: bodyConfig.getOptionalStringArray('composed_of'),
+            template: bodyConfig.getOptionalConfig('template')?.get(),
+          },
+        };
+      }) ?? []
+    );
+  }
+}
+
+/**
+ * @public
+ */
+export function decodePageCursor(pageCursor?: string): { page: number } {
+  if (!pageCursor) {
+    return { page: 0 };
+  }
+
+  return {
+    page: Number(Buffer.from(pageCursor, 'base64').toString('utf-8')),
+  };
+}
+
+export function encodePageCursor({ page }: { page: number }): string {
+  return Buffer.from(`${page}`, 'utf-8').toString('base64');
 }

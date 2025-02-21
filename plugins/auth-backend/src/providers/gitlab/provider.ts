@@ -14,179 +14,43 @@
  * limitations under the License.
  */
 
-import express from 'express';
-import { Strategy as GitlabStrategy } from 'passport-gitlab2';
+import { AuthHandler } from '../types';
+import { OAuthResult } from '../../lib/oauth';
+import { createAuthProviderIntegration } from '../createAuthProviderIntegration';
 import {
-  executeRedirectStrategy,
-  executeFrameHandlerStrategy,
-  executeRefreshTokenStrategy,
-  executeFetchUserProfileStrategy,
-  makeProfileInfo,
-  PassportDoneCallback,
-} from '../../lib/passport';
-import { RedirectInfo, AuthProviderFactory } from '../types';
+  SignInResolver,
+  createOAuthProviderFactory,
+} from '@backstage/plugin-auth-node';
 import {
-  OAuthAdapter,
-  OAuthProviderOptions,
-  OAuthHandlers,
-  OAuthResponse,
-  OAuthEnvironmentHandler,
-  OAuthStartRequest,
-  OAuthRefreshRequest,
-  encodeState,
-  OAuthResult,
-} from '../../lib/oauth';
+  adaptLegacyOAuthHandler,
+  adaptLegacyOAuthSignInResolver,
+} from '../../lib/legacy';
+import { gitlabAuthenticator } from '@backstage/plugin-auth-backend-module-gitlab-provider';
 
-type FullProfile = OAuthResult['fullProfile'] & {
-  avatarUrl?: string;
-};
+/**
+ * Auth provider integration for GitLab auth
+ *
+ * @public
+ */
+export const gitlab = createAuthProviderIntegration({
+  create(options?: {
+    /**
+     * The profile transformation function used to verify and convert the auth response
+     * into the profile that will be presented to the user.
+     */
+    authHandler?: AuthHandler<OAuthResult>;
 
-type PrivateInfo = {
-  refreshToken: string;
-};
-
-export type GitlabAuthProviderOptions = OAuthProviderOptions & {
-  baseUrl: string;
-};
-
-function transformProfile(fullProfile: FullProfile) {
-  const profile = makeProfileInfo({
-    ...fullProfile,
-    photos: [
-      ...(fullProfile.photos ?? []),
-      ...(fullProfile.avatarUrl ? [{ value: fullProfile.avatarUrl }] : []),
-    ],
-  });
-
-  let id = fullProfile.id;
-  if (profile.email) {
-    id = profile.email.split('@')[0];
-  }
-
-  return { id, profile };
-}
-
-export class GitlabAuthProvider implements OAuthHandlers {
-  private readonly _strategy: GitlabStrategy;
-
-  constructor(options: GitlabAuthProviderOptions) {
-    this._strategy = new GitlabStrategy(
-      {
-        clientID: options.clientId,
-        clientSecret: options.clientSecret,
-        callbackURL: options.callbackUrl,
-        baseURL: options.baseUrl,
-      },
-      (
-        accessToken: any,
-        refreshToken: any,
-        params: any,
-        fullProfile: any,
-        done: PassportDoneCallback<OAuthResult, PrivateInfo>,
-      ) => {
-        done(
-          undefined,
-          { fullProfile, params, accessToken },
-          {
-            refreshToken,
-          },
-        );
-      },
-    );
-  }
-
-  async start(req: OAuthStartRequest): Promise<RedirectInfo> {
-    return await executeRedirectStrategy(req, this._strategy, {
-      scope: req.scope,
-      state: encodeState(req.state),
-    });
-  }
-
-  async handler(
-    req: express.Request,
-  ): Promise<{ response: OAuthResponse; refreshToken: string }> {
-    const { result, privateInfo } = await executeFrameHandlerStrategy<
-      OAuthResult,
-      PrivateInfo
-    >(req, this._strategy);
-    const { accessToken, params } = result;
-
-    const { id, profile } = transformProfile(result.fullProfile);
-
-    return {
-      response: {
-        profile,
-        providerInfo: {
-          accessToken,
-          scope: params.scope,
-          expiresInSeconds: params.expires_in,
-          idToken: params.id_token,
-        },
-        backstageIdentity: {
-          id,
-        },
-      },
-      refreshToken: privateInfo.refreshToken,
+    /**
+     * Configure sign-in for this provider, without it the provider can not be used to sign users in.
+     */
+    signIn?: {
+      resolver: SignInResolver<OAuthResult>;
     };
-  }
-
-  async refresh(req: OAuthRefreshRequest): Promise<OAuthResponse> {
-    const {
-      accessToken,
-      refreshToken: newRefreshToken,
-      params,
-    } = await executeRefreshTokenStrategy(
-      this._strategy,
-      req.refreshToken,
-      req.scope,
-    );
-
-    const fullProfile = await executeFetchUserProfileStrategy(
-      this._strategy,
-      accessToken,
-    );
-    const { id, profile } = transformProfile(fullProfile);
-
-    return {
-      profile,
-      providerInfo: {
-        accessToken,
-        refreshToken: newRefreshToken, // GitLab expires the old refresh token when used
-        idToken: params.id_token,
-        expiresInSeconds: params.expires_in,
-        scope: params.scope,
-      },
-      backstageIdentity: {
-        id,
-      },
-    };
-  }
-}
-
-export type GitlabProviderOptions = {};
-
-export const createGitlabProvider = (
-  _options?: GitlabProviderOptions,
-): AuthProviderFactory => {
-  return ({ providerId, globalConfig, config, tokenIssuer }) =>
-    OAuthEnvironmentHandler.mapConfig(config, envConfig => {
-      const clientId = envConfig.getString('clientId');
-      const clientSecret = envConfig.getString('clientSecret');
-      const audience = envConfig.getOptionalString('audience');
-      const baseUrl = audience || 'https://gitlab.com';
-      const callbackUrl = `${globalConfig.baseUrl}/${providerId}/handler/frame`;
-
-      const provider = new GitlabAuthProvider({
-        clientId,
-        clientSecret,
-        callbackUrl,
-        baseUrl,
-      });
-
-      return OAuthAdapter.fromConfig(globalConfig, provider, {
-        disableRefresh: false,
-        providerId,
-        tokenIssuer,
-      });
+  }) {
+    return createOAuthProviderFactory({
+      authenticator: gitlabAuthenticator,
+      profileTransform: adaptLegacyOAuthHandler(options?.authHandler),
+      signInResolver: adaptLegacyOAuthSignInResolver(options?.signIn?.resolver),
     });
-};
+  },
+});

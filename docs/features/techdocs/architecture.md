@@ -9,11 +9,18 @@ description: Documentation on TechDocs Architecture
 When you deploy Backstage (with TechDocs enabled by default), you get a basic
 out-of-the box experience.
 
-<img data-zoomable src="../../assets/techdocs/architecture-basic.drawio.svg" alt="TechDocs Architecture diagram" />
+<!-- todo: Needs zoomable plugin -->
 
-> Note: See below for our recommended deployment architecture which takes care
-> of stability, scalability and speed. Also look at the
-> [HOW TO migrate guide](how-to-guides.md#how-to-migrate-from-techdocs-basic-to-recommended-deployment-approach).
+![TechDocs Architecture diagram](../../assets/techdocs/architecture-basic.drawio.svg)
+
+:::note Note
+
+See below for our recommended deployment architecture which takes care
+of stability, scalability and speed. Also look at the
+[HOW TO migrate guide](how-to-guides
+md#how-to-migrate-from-techdocs-basic-to-recommended-deployment-approach).
+
+:::
 
 When you open a TechDocs site in Backstage, the
 [TechDocs Reader](./concepts.md#techdocs-reader) makes a request to
@@ -40,9 +47,11 @@ storage system (e.g. AWS S3, GCS or Azure Blob Storage). Read more in
 
 ## Recommended deployment
 
-This is how we recommend deploying TechDocs in production environment.
+This is how we recommend deploying TechDocs in a production environment.
 
-<img data-zoomable src="../../assets/techdocs/architecture-recommended.drawio.svg" alt="TechDocs Architecture diagram" />
+<!-- todo: Needs zoomable plugin -->
+
+![TechDocs Architecture diagram](../../assets/techdocs/architecture-recommended.drawio.svg)
 
 The key difference in the recommended deployment approach is where the docs are
 built.
@@ -58,12 +67,12 @@ Similar to how it is done in the Basic setup, the TechDocs Reader requests
 your configured storage solution for the necessary files and returns them to
 TechDocs Reader.
 
-Note about caching: We have noticed internally that some storage providers can
-be quite slow, which is why we are recommending a cache that sits between the
-TechDocs Reader and the Storage.
-
-_Feel free to suggest better ideas to us in #docs-like-code channel in Discord
-or via a GitHub issue._
+Depending on your chosen cloud storage provider and its real-world proximity to
+your backend server, there may be a comparably high amount of latency when
+loading TechDocs sites using this deployment approach. If you encounter this,
+you can optionally configure the `techdocs-backend` to cache responses in a
+cache store
+[supported by Backstage](../../overview/architecture-overview.md#cache).
 
 ### Security consideration
 
@@ -131,15 +140,3 @@ layer for users to determine whether they have the permission to view a
 particular docs site. There are a handful of features which are extremely hard
 to develop without a tightly integrated backend in place. Hence, support for
 `techdocs` without `techdocs-backend` is limited and challenging to develop.
-
-# Future work
-
-_Ideas here are far fetched and not in the project's milestone for near future
-(~6 months)._
-
-We currently depend on MkDocs to parse doc sites written in Markdown. And we
-store the generated static assets and re-use it later to render in Backstage. A
-better (futuristic) approach will be to directly parse whatever type of source
-files you have in your docs repository and directly render in Backstage in
-real-time. You can read more in this
-[RFC - Simplifying TechDocs Frontend Architecture](https://github.com/backstage/backstage/issues/3998).

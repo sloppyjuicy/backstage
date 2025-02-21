@@ -14,89 +14,10 @@
  * limitations under the License.
  */
 
-import express from 'express';
-import { Config } from '@backstage/config';
-import { InputError } from '@backstage/errors';
-import { readState } from './helpers';
-import { AuthProviderRouteHandlers } from '../../providers/types';
+import { OAuthEnvironmentHandler as _OAuthEnvironmentHandler } from '@backstage/plugin-auth-node';
 
-export class OAuthEnvironmentHandler implements AuthProviderRouteHandlers {
-  static mapConfig(
-    config: Config,
-    factoryFunc: (envConfig: Config) => AuthProviderRouteHandlers,
-  ) {
-    const envs = config.keys();
-    const handlers = new Map<string, AuthProviderRouteHandlers>();
-
-    for (const env of envs) {
-      const envConfig = config.getConfig(env);
-      const handler = factoryFunc(envConfig);
-      handlers.set(env, handler);
-    }
-
-    return new OAuthEnvironmentHandler(handlers);
-  }
-
-  constructor(
-    private readonly handlers: Map<string, AuthProviderRouteHandlers>,
-  ) {}
-
-  async start(req: express.Request, res: express.Response): Promise<void> {
-    const provider = this.getProviderForEnv(req, res);
-    await provider?.start(req, res);
-  }
-
-  async frameHandler(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const provider = this.getProviderForEnv(req, res);
-    await provider?.frameHandler(req, res);
-  }
-
-  async refresh(req: express.Request, res: express.Response): Promise<void> {
-    const provider = this.getProviderForEnv(req, res);
-    await provider?.refresh?.(req, res);
-  }
-
-  async logout(req: express.Request, res: express.Response): Promise<void> {
-    const provider = this.getProviderForEnv(req, res);
-    await provider?.logout?.(req, res);
-  }
-
-  private getRequestFromEnv(req: express.Request): string | undefined {
-    const reqEnv = req.query.env?.toString();
-    if (reqEnv) {
-      return reqEnv;
-    }
-    const stateParams = req.query.state?.toString();
-    if (!stateParams) {
-      return undefined;
-    }
-    const env = readState(stateParams).env;
-    return env;
-  }
-
-  private getProviderForEnv(
-    req: express.Request,
-    res: express.Response,
-  ): AuthProviderRouteHandlers | undefined {
-    const env: string | undefined = this.getRequestFromEnv(req);
-
-    if (!env) {
-      throw new InputError(`Must specify 'env' query to select environment`);
-    }
-
-    if (!this.handlers.has(env)) {
-      res.status(404).send(
-        `Missing configuration.
-    <br>
-    <br>
-    For this flow to work you need to supply a valid configuration for the "${env}" environment of provider.`,
-      );
-      return undefined;
-    }
-
-    return this.handlers.get(env);
-  }
-}
+/**
+ * @public
+ * @deprecated import from `@backstage/plugin-auth-node` instead
+ */
+export const OAuthEnvironmentHandler = _OAuthEnvironmentHandler;

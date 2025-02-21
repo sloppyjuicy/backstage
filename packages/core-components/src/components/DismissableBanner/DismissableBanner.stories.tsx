@@ -15,18 +15,26 @@
  */
 
 import React from 'react';
-import { DismissableBanner } from './DismissableBanner';
-import { Link, Typography } from '@material-ui/core';
-import { ApiProvider, ApiRegistry, WebStorage } from '@backstage/core-app-api';
+import { DismissableBanner, Props } from './DismissableBanner';
+import Typography from '@material-ui/core/Typography';
+import { WebStorage } from '@backstage/core-app-api';
 import {
   ErrorApi,
   storageApiRef,
   StorageApi,
 } from '@backstage/core-plugin-api';
+import { TestApiProvider } from '@backstage/test-utils';
+import { Link } from '../Link';
 
 export default {
   title: 'Feedback/DismissableBanner',
   component: DismissableBanner,
+  argTypes: {
+    variant: {
+      options: ['info', 'error', 'warning'],
+      control: { type: 'select' },
+    },
+  },
 };
 
 let errorApi: ErrorApi;
@@ -36,71 +44,40 @@ const createWebStorage = (): StorageApi => {
   return WebStorage.create({ errorApi });
 };
 
-const apis = ApiRegistry.from([[storageApiRef, createWebStorage()]]);
+const apis = [[storageApiRef, createWebStorage()] as const];
+const defaultArgs = {
+  message: 'This is a dismissable banner',
+  variant: 'info',
+  fixed: false,
+};
 
-export const Default = () => (
+export const Default = (args: Props) => (
   <div style={containerStyle}>
-    <ApiProvider apis={apis}>
-      <DismissableBanner
-        message="This is a dismissable banner"
-        variant="info"
-        id="default_dismissable"
-      />
-    </ApiProvider>
+    <TestApiProvider apis={apis}>
+      <DismissableBanner {...args} id="default_dismissable" />
+    </TestApiProvider>
   </div>
 );
 
-export const Error = () => (
-  <div style={containerStyle}>
-    <ApiProvider apis={apis}>
-      <DismissableBanner
-        message="This is a dismissable banner with an error message"
-        variant="error"
-        id="error_dismissable"
-      />
-    </ApiProvider>
-  </div>
-);
+Default.args = defaultArgs;
 
-export const EmojisIncluded = () => (
+export const WithLink = (args: Props) => (
   <div style={containerStyle}>
-    <ApiProvider apis={apis}>
+    <TestApiProvider apis={apis}>
       <DismissableBanner
-        message="This is a dismissable banner with emojis: 🚀 💚 😆 "
-        variant="info"
-        id="emojis_dismissable"
-      />
-    </ApiProvider>
-  </div>
-);
-
-export const WithLink = () => (
-  <div style={containerStyle}>
-    <ApiProvider apis={apis}>
-      <DismissableBanner
+        {...args}
         message={
           <Typography>
             This is a dismissable banner with a link:{' '}
-            <Link href="http://example.com" color="textPrimary">
+            <Link to="http://example.com" color="textPrimary">
               example.com
             </Link>
           </Typography>
         }
-        variant="info"
         id="linked_dismissable"
       />
-    </ApiProvider>
+    </TestApiProvider>
   </div>
 );
-export const Fixed = () => (
-  <div style={containerStyle}>
-    <ApiProvider apis={apis}>
-      <DismissableBanner
-        message="This is a dismissable banner with a fixed position fixed at the bottom of the page"
-        variant="info"
-        id="fixed_dismissable"
-        fixed
-      />
-    </ApiProvider>
-  </div>
-);
+
+WithLink.args = defaultArgs;

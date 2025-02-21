@@ -42,6 +42,10 @@ const fixture = `
       <img src="test.jpg" />
       <script type="javascript" src="script.js"></script>
       <a href="afile.pdf" download>Download Now</a>
+      <video width="800" height="450" controls preload="auto">
+        <source src="avideo.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
     </body>
   </html>
 `;
@@ -88,12 +92,18 @@ describe('addBaseUrl', () => {
     );
     expect(techdocsStorageApi.getBaseUrl).toHaveBeenNthCalledWith(
       3,
-      'astyle.css',
+      'avideo.mp4',
       mockEntityId,
       '',
     );
     expect(techdocsStorageApi.getBaseUrl).toHaveBeenNthCalledWith(
       4,
+      'astyle.css',
+      mockEntityId,
+      '',
+    );
+    expect(techdocsStorageApi.getBaseUrl).toHaveBeenNthCalledWith(
+      5,
       'afile.pdf',
       mockEntityId,
       '',
@@ -120,6 +130,36 @@ describe('addBaseUrl', () => {
       ],
       postTransformers: [],
     });
+
+    await waitFor(() => {
+      const actualSrc = root.getElementById('x')?.getAttribute('src');
+      expect(expectedSrc).toEqual(actualSrc);
+    });
+  });
+
+  it('preserves anchors in the original src', async () => {
+    const svgContent = '<svg></svg>';
+    const expectedSrc = `data:image/svg+xml;base64,${Buffer.from(
+      svgContent,
+    ).toString('base64')}`;
+
+    (global.fetch as jest.Mock).mockReturnValue({
+      text: jest.fn().mockResolvedValue(svgContent),
+    });
+
+    const root = await createTestShadowDom(
+      '<img id="x" src="test.svg#dark-mode" />',
+      {
+        preTransformers: [
+          addBaseUrl({
+            techdocsStorageApi,
+            entityId: mockEntityId,
+            path: '',
+          }),
+        ],
+        postTransformers: [],
+      },
+    );
 
     await waitFor(() => {
       const actualSrc = root.getElementById('x')?.getAttribute('src');

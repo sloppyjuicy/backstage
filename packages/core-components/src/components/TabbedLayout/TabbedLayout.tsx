@@ -23,7 +23,7 @@ import React, {
   ReactNode,
 } from 'react';
 import { RoutedTabs } from './RoutedTabs';
-import { TabProps } from '@material-ui/core';
+import { TabProps } from '@material-ui/core/Tab';
 
 type SubRoute = {
   path: string;
@@ -71,6 +71,7 @@ export function createSubRoutesFromChildren(
  * TabbedLayout is a compound component, which allows you to define a layout for
  * pages using a sub-navigation mechanism.
  *
+ * @remarks
  * Consists of two parts: TabbedLayout and TabbedLayout.Route
  *
  * @example
@@ -82,10 +83,10 @@ export function createSubRoutesFromChildren(
  * </TabbedLayout>
  * ```
  */
-export const TabbedLayout = ({ children }: PropsWithChildren<{}>) => {
-  const routes = createSubRoutesFromChildren(children);
+export function TabbedLayout(props: PropsWithChildren<{}>) {
+  const routes = createSubRoutesFromChildren(props.children);
 
   return <RoutedTabs routes={routes} />;
-};
+}
 
 TabbedLayout.Route = Route;

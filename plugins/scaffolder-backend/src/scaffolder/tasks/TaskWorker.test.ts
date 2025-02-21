@@ -15,476 +15,330 @@
  */
 
 import os from 'os';
-import { getVoidLogger, DatabaseManager } from '@backstage/backend-common';
-import { ConfigReader, JsonObject } from '@backstage/config';
-import { createTemplateAction, TemplateActionRegistry } from '../actions';
-import { RepoSpec } from '../actions/builtin/publish/util';
+import {
+  DatabaseManager,
+  loggerToWinstonLogger,
+} from '@backstage/backend-common';
+import { ConfigReader } from '@backstage/config';
 import { DatabaseTaskStore } from './DatabaseTaskStore';
 import { StorageTaskBroker } from './StorageTaskBroker';
-import { TaskWorker } from './TaskWorker';
+import { TaskWorker, TaskWorkerOptions } from './TaskWorker';
 import { ScmIntegrations } from '@backstage/integration';
+import { TemplateActionRegistry } from '../actions';
+import { NunjucksWorkflowRunner } from './NunjucksWorkflowRunner';
+import {
+  SerializedTaskEvent,
+  TaskBroker,
+  TaskContext,
+} from '@backstage/plugin-scaffolder-node';
+import { WorkflowRunner } from './types';
+import ObservableImpl from 'zen-observable';
+import waitForExpect from 'wait-for-expect';
+import { mockServices } from '@backstage/backend-test-utils';
+
+jest.mock('./NunjucksWorkflowRunner');
+const MockedNunjucksWorkflowRunner =
+  NunjucksWorkflowRunner as jest.Mock<NunjucksWorkflowRunner>;
+MockedNunjucksWorkflowRunner.mockImplementation();
 
 async function createStore(): Promise<DatabaseTaskStore> {
   const manager = DatabaseManager.fromConfig(
     new ConfigReader({
       backend: {
         database: {
-          client: 'sqlite3',
+          client: 'better-sqlite3',
           connection: ':memory:',
         },
       },
     }),
   ).forPlugin('scaffolder');
-  return await DatabaseTaskStore.create(await manager.getClient());
+  return await DatabaseTaskStore.create({
+    database: manager,
+  });
 }
 
 describe('TaskWorker', () => {
   let storage: DatabaseTaskStore;
-  let actionRegistry = new TemplateActionRegistry();
 
-  const integrations = ScmIntegrations.fromConfig(
-    new ConfigReader({
-      integrations: {
-        github: [{ host: 'github.com', token: 'token' }],
-      },
-    }),
-  );
+  const integrations: ScmIntegrations = {} as ScmIntegrations;
+
+  const actionRegistry: TemplateActionRegistry = {} as TemplateActionRegistry;
+  const workingDirectory = '/tmp/scaffolder';
+
+  const workflowRunner: NunjucksWorkflowRunner = {
+    execute: jest.fn(),
+  } as unknown as NunjucksWorkflowRunner;
 
   beforeAll(async () => {
     storage = await createStore();
   });
 
   beforeEach(() => {
-    actionRegistry = new TemplateActionRegistry();
-    actionRegistry.register({
-      id: 'test-action',
-      handler: async ctx => {
-        ctx.output('testOutput', 'winning');
-        ctx.output('badOutput', false);
-      },
-    });
+    jest.resetAllMocks();
+    MockedNunjucksWorkflowRunner.mockImplementation(() => workflowRunner);
   });
 
-  const logger = getVoidLogger();
+  const logger = loggerToWinstonLogger(mockServices.logger.mock());
 
-  it('should fail when action does not exist', async () => {
+  it('should call the default workflow runner when the apiVersion is beta3', async () => {
     const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
+    const taskWorker = await TaskWorker.create({
       logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
+      workingDirectory,
       integrations,
-    });
-    const { taskId } = await broker.dispatch({
-      steps: [{ id: 'test', name: 'test', action: 'not-found-action' }],
-      output: {
-        result: '{{ steps.test.output.testOutput }}',
-      },
-      values: {},
-    });
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-
-    expect((event?.body?.error as JsonObject)?.message).toBe(
-      "Template action with ID 'not-found-action' is not registered.",
-    );
-  });
-
-  it('should template output', async () => {
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
       taskBroker: broker,
-      integrations,
+      actionRegistry,
     });
 
-    const { taskId } = await broker.dispatch({
-      steps: [{ id: 'test', name: 'test', action: 'test-action' }],
-      output: {
-        result: '{{ steps.test.output.testOutput }}',
+    await broker.dispatch({
+      spec: {
+        apiVersion: 'scaffolder.backstage.io/v1beta3',
+        steps: [{ id: 'test', name: 'test', action: 'not-found-action' }],
+        output: {
+          result: '{{ steps.test.output.testOutput }}',
+        },
+        parameters: {},
       },
-      values: {},
     });
 
     const task = await broker.claim();
     await taskWorker.runOneTask(task);
 
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-    expect((event?.body?.output as JsonObject).result).toBe('winning');
+    expect(workflowRunner.execute).toHaveBeenCalled();
   });
 
-  it('should template input', async () => {
-    const inputAction = createTemplateAction<{
-      name: string;
-    }>({
-      id: 'test-input',
-      schema: {
-        input: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name: {
-              title: 'name',
-              description: 'Enter name',
-              type: 'string',
+  it('should save the output to the task', async () => {
+    (workflowRunner.execute as jest.Mock).mockResolvedValue({
+      output: { testOutput: 'testmockoutput' },
+    });
+
+    const broker = new StorageTaskBroker(storage, logger);
+    const taskWorker = await TaskWorker.create({
+      logger,
+      workingDirectory,
+      integrations,
+      taskBroker: broker,
+      actionRegistry,
+    });
+
+    const { taskId } = await broker.dispatch({
+      spec: {
+        apiVersion: 'scaffolder.backstage.io/v1beta3',
+        steps: [{ id: 'test', name: 'test', action: 'not-found-action' }],
+        output: {
+          result: '{{ steps.test.output.testOutput }}',
+        },
+        parameters: {},
+      },
+    });
+
+    const task = await broker.claim();
+    await taskWorker.runOneTask(task);
+
+    const { events } = await storage.listEvents({ taskId });
+    const event = events.find(e => e.type === 'completion');
+    expect(event?.body.output).toEqual({ testOutput: 'testmockoutput' });
+  });
+});
+
+describe('Concurrent TaskWorker', () => {
+  let storage: DatabaseTaskStore;
+
+  const integrations: ScmIntegrations = {} as ScmIntegrations;
+
+  const actionRegistry: TemplateActionRegistry = {} as TemplateActionRegistry;
+  const workingDirectory = os.tmpdir();
+  let asyncTasksCount = 0;
+
+  const workflowRunner: NunjucksWorkflowRunner = {
+    execute: () => {
+      asyncTasksCount++;
+      return new Promise(resolve => {
+        setTimeout(() => {
+          resolve({ output: { testOutput: 'testmockoutput' } });
+        }, 1000);
+      });
+    },
+  } as unknown as NunjucksWorkflowRunner;
+
+  beforeAll(async () => {
+    storage = await createStore();
+  });
+
+  beforeEach(() => {
+    asyncTasksCount = 0;
+    jest.resetAllMocks();
+    MockedNunjucksWorkflowRunner.mockImplementation(() => workflowRunner);
+  });
+
+  const logger = loggerToWinstonLogger(mockServices.logger.mock());
+
+  it('should be able to run multiple tasks at once', async () => {
+    const broker = new StorageTaskBroker(storage, logger);
+
+    const dispatchANewTask = () =>
+      broker.dispatch({
+        spec: {
+          apiVersion: 'scaffolder.backstage.io/v1beta3',
+          steps: [{ id: 'test', name: 'test', action: 'not-found-action' }],
+          output: {
+            result: '{{ steps.test.output.testOutput }}',
+          },
+          parameters: {},
+        },
+      });
+
+    const expectedConcurrentTasks = 3;
+    const taskWorker = await TaskWorker.create({
+      logger,
+      workingDirectory,
+      integrations,
+      taskBroker: broker,
+      actionRegistry,
+      concurrentTasksLimit: expectedConcurrentTasks,
+    });
+
+    taskWorker.start();
+
+    await dispatchANewTask();
+    await dispatchANewTask();
+    await dispatchANewTask();
+    await dispatchANewTask();
+
+    expect(asyncTasksCount).toEqual(expectedConcurrentTasks);
+  });
+});
+
+describe('Cancellable TaskWorker', () => {
+  let storage: DatabaseTaskStore;
+  const integrations: ScmIntegrations = {} as ScmIntegrations;
+  const actionRegistry: TemplateActionRegistry = {} as TemplateActionRegistry;
+  const workingDirectory = os.tmpdir();
+
+  let myTask: TaskContext | undefined = undefined;
+
+  const workflowRunner: NunjucksWorkflowRunner = {
+    execute: (task: TaskContext) => {
+      myTask = task;
+    },
+  } as unknown as NunjucksWorkflowRunner;
+
+  beforeAll(async () => {
+    storage = await createStore();
+  });
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    MockedNunjucksWorkflowRunner.mockImplementation(() => workflowRunner);
+  });
+
+  const logger = loggerToWinstonLogger(mockServices.logger.mock());
+
+  it('should be able to cancel the running task', async () => {
+    const taskBroker = new StorageTaskBroker(storage, logger);
+    const taskWorker = await TaskWorker.create({
+      logger,
+      workingDirectory,
+      integrations,
+      taskBroker,
+      actionRegistry,
+    });
+
+    const steps = [...Array(10)].map(n => ({
+      id: `test${n}`,
+      name: `test${n}`,
+      action: 'not-found-action',
+    }));
+
+    const { taskId } = await taskBroker.dispatch({
+      spec: {
+        apiVersion: 'scaffolder.backstage.io/v1beta3',
+        steps,
+        output: {
+          result: '{{ steps.test.output.testOutput }}',
+        },
+        parameters: {},
+      },
+    });
+
+    taskWorker.start();
+    await taskBroker.cancel(taskId);
+
+    await waitForExpect(() => {
+      expect(myTask?.cancelSignal.aborted).toBeTruthy();
+    });
+  });
+});
+
+describe('TaskWorker internals', () => {
+  const TaskWorkerConstructor = TaskWorker as unknown as {
+    new (options: TaskWorkerOptions): TaskWorker;
+  };
+
+  it('should not pick up tasks before it is ready to execute more work', async () => {
+    const inflightTasks = new Array<{
+      task: TaskContext;
+      resolve: () => void;
+    }>();
+    const workflowRunner: WorkflowRunner = {
+      async execute(task) {
+        await new Promise<void>(resolve => {
+          inflightTasks.push({ task, resolve });
+        });
+        return {
+          output: {},
+        };
+      },
+    };
+
+    const subscribers = new Set<
+      ZenObservable.SubscriptionObserver<{ events: SerializedTaskEvent[] }>
+    >();
+
+    let claimedTaskCount = 0;
+    const taskWorker = new TaskWorkerConstructor({
+      runners: { workflowRunner },
+      taskBroker: {
+        event$() {
+          return new ObservableImpl<{ events: SerializedTaskEvent[] }>(
+            subscriber => {
+              subscribers.add(subscriber);
+              return () => {
+                subscribers.delete(subscriber);
+              };
             },
-          },
-        },
-      },
-      async handler(ctx) {
-        if (ctx.input.name !== 'winning') {
-          throw new Error(
-            `expected name to be "winning" got ${ctx.input.name}`,
           );
-        }
-      },
-    });
-    actionRegistry.register(inputAction);
-
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
-    });
-
-    const { taskId } = await broker.dispatch({
-      steps: [
-        { id: 'test', name: 'test', action: 'test-action' },
-        {
-          id: 'test-input',
-          name: 'test-input',
-          action: 'test-input',
-          input: {
-            name: '{{ steps.test.output.testOutput }}',
-          },
         },
-      ],
-      output: {
-        result: '{{ steps.test.output.testOutput }}',
-      },
-      values: {},
-    });
-
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-    expect((event?.body?.output as JsonObject).result).toBe('winning');
-  });
-
-  it('should execute steps conditionally', async () => {
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
-    });
-
-    const { taskId } = await broker.dispatch({
-      steps: [
-        { id: 'test', name: 'test', action: 'test-action' },
-        {
-          id: 'conditional',
-          name: 'conditional',
-          action: 'test-action',
-          if: '{{ steps.test.output.testOutput }}',
-        },
-      ],
-      output: {
-        result: '{{ steps.conditional.output.testOutput }}',
-      },
-      values: {},
-    });
-
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-    expect((event?.body?.output as JsonObject).result).toBe('winning');
-  });
-
-  it('should execute steps conditionally with eq helper', async () => {
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
-    });
-
-    const { taskId } = await broker.dispatch({
-      steps: [
-        { id: 'test', name: 'test', action: 'test-action' },
-        {
-          id: 'conditional',
-          name: 'conditional',
-          action: 'test-action',
-          if: '{{ eq steps.test.output.testOutput "winning" }}',
-        },
-      ],
-      output: {
-        result: '{{ steps.conditional.output.testOutput }}',
-      },
-      values: {},
-    });
-
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-    expect((event?.body?.output as JsonObject).result).toBe('winning');
-  });
-
-  it('should skip steps conditionally', async () => {
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
-    });
-
-    const { taskId } = await broker.dispatch({
-      steps: [
-        { id: 'test', name: 'test', action: 'test-action' },
-        {
-          id: 'conditional',
-          name: 'conditional',
-          action: 'test-action',
-          if: '{{ steps.test.output.badOutput }}',
-        },
-      ],
-      output: {
-        result: '{{ steps.conditional.output.testOutput }}',
-      },
-      values: {},
-    });
-
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-    expect((event?.body?.output as JsonObject).result).toBeUndefined();
-  });
-
-  it('should parse strings as objects if possible', async () => {
-    const inputAction = createTemplateAction<{
-      address: { line1: string };
-      list: string[];
-      address2: string;
-    }>({
-      id: 'test-input',
-      schema: {
-        input: {
-          type: 'object',
-          required: ['address'],
-          properties: {
-            address: {
-              title: 'address',
-              description: 'Enter name',
-              type: 'object',
-              properties: {
-                line1: {
-                  type: 'string',
-                },
-              },
+        async claim() {
+          claimedTaskCount++;
+          return {
+            spec: {
+              apiVersion: 'scaffolder.backstage.io/v1beta3',
             },
-            address2: {
-              type: 'string',
-            },
-            list: {
-              type: 'array',
-              items: {
-                type: 'string',
-              },
-            },
-          },
+            createdBy: `test-${claimedTaskCount}`,
+            async complete(_result, _metadata) {},
+          } as TaskContext;
         },
-      },
-      async handler(ctx) {
-        if (ctx.input.list.length !== 1) {
-          throw new Error(
-            `expected list to have length "1" got ${ctx.input.list.length}`,
-          );
-        }
-        if (ctx.input.address.line1 !== 'line 1') {
-          throw new Error(
-            `expected address.line1 to be "line 1" got ${ctx.input.address.line1}`,
-          );
-        }
-
-        if (ctx.input.address2 !== '{"not valid"}') {
-          throw new Error(
-            `expected address2 to be "{"not valid"}" got ${ctx.input.address2}`,
-          );
-        }
-        ctx.output('address', ctx.input.address.line1);
-      },
-    });
-    actionRegistry.register(inputAction);
-
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
+      } as unknown as TaskBroker,
+      concurrentTasksLimit: 2,
     });
 
-    const { taskId } = await broker.dispatch({
-      steps: [
-        {
-          id: 'test-input',
-          name: 'test-input',
-          action: 'test-input',
-          input: {
-            address: JSON.stringify({ line1: 'line 1' }),
-            list: JSON.stringify(['hey!']),
-            address2: '{"not valid"}',
-          },
-        },
-      ],
-      output: {
-        result: '{{ steps.test-input.output.address }}',
-      },
-      values: {},
-    });
+    expect(claimedTaskCount).toBe(0);
+    taskWorker.start();
 
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
+    // This will wait for all higher priority promise ticks to complete
+    await new Promise(resolve => setTimeout(resolve));
 
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
+    // Once we start the worker it should pick up 2 tasks, since that's our limit
+    expect(claimedTaskCount).toBe(2);
+    expect(inflightTasks.length).toBe(2);
 
-    expect((event?.body?.output as JsonObject).result).toBe('line 1');
-  });
+    // This completes the first task, making space for one more
+    inflightTasks.shift()?.resolve();
+    await new Promise(resolve => setTimeout(resolve));
 
-  // TODO(blam): Can delete this test when we make the helpers a public API
-  it('should provide a repoUrlParse helper for the templates', async () => {
-    const inputAction = createTemplateAction<{
-      destination: RepoSpec;
-    }>({
-      id: 'test-input',
-      schema: {
-        input: {
-          type: 'object',
-          required: ['destination'],
-          properties: {
-            destination: {
-              title: 'destination',
-              type: 'object',
-              properties: {
-                repo: {
-                  type: 'string',
-                },
-                host: {
-                  type: 'string',
-                },
-                owner: {
-                  type: 'string',
-                },
-                organization: {
-                  type: 'string',
-                },
-                workspace: {
-                  type: 'string',
-                },
-                project: {
-                  type: 'string',
-                },
-              },
-            },
-          },
-        },
-      },
-      async handler(ctx) {
-        ctx.output('host', ctx.input.destination.host);
-        ctx.output('repo', ctx.input.destination.repo);
-
-        if (ctx.input.destination.owner) {
-          ctx.output('owner', ctx.input.destination.owner);
-        }
-
-        if (ctx.input.destination.host !== 'github.com') {
-          throw new Error(
-            `expected host to be "github.com" got ${ctx.input.destination.host}`,
-          );
-        }
-
-        if (ctx.input.destination.repo !== 'repo') {
-          throw new Error(
-            `expected repo to be "repo" got ${ctx.input.destination.repo}`,
-          );
-        }
-
-        if (
-          ctx.input.destination.owner &&
-          ctx.input.destination.owner !== 'owner'
-        ) {
-          throw new Error(
-            `expected repo to be "owner" got ${ctx.input.destination.owner}`,
-          );
-        }
-      },
-    });
-    actionRegistry.register(inputAction);
-
-    const broker = new StorageTaskBroker(storage, logger);
-    const taskWorker = new TaskWorker({
-      logger,
-      workingDirectory: os.tmpdir(),
-      actionRegistry,
-      taskBroker: broker,
-      integrations,
-    });
-
-    const { taskId } = await broker.dispatch({
-      steps: [
-        {
-          id: 'test-input',
-          name: 'test-input',
-          action: 'test-input',
-          input: {
-            destination: '{{ parseRepoUrl parameters.repoUrl }}',
-          },
-        },
-      ],
-      output: {
-        host: '{{ steps.test-input.output.host }}',
-        repo: '{{ steps.test-input.output.repo }}',
-        owner: '{{ steps.test-input.output.owner }}',
-      },
-      values: {
-        repoUrl: 'github.com?repo=repo&owner=owner',
-      },
-    });
-
-    const task = await broker.claim();
-    await taskWorker.runOneTask(task);
-
-    const { events } = await storage.listEvents({ taskId });
-    const event = events.find(e => e.type === 'completion');
-
-    expect((event?.body?.output as JsonObject).host).toBe('github.com');
-    expect((event?.body?.output as JsonObject).repo).toBe('repo');
-    expect((event?.body?.output as JsonObject).owner).toBe('owner');
+    // We now expect one more task to have been claimed, and two tasks in the queue again
+    expect(claimedTaskCount).toBe(3);
+    expect(inflightTasks.length).toBe(2);
   });
 });

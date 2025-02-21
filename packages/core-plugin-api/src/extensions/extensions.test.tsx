@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import { withLogCollector } from '@backstage/test-utils-core';
+import { withLogCollector } from '@backstage/test-utils';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
+import { useAnalyticsContext } from '../analytics/AnalyticsContext';
 import { useApp, ErrorBoundaryFallbackProps } from '../app';
 import { createPlugin } from '../plugin';
 import { createRouteRef } from '../routing';
@@ -40,6 +41,7 @@ describe('extensions', () => {
     const Component = () => <div />;
 
     const extension = createReactExtension({
+      name: 'Extension',
       component: {
         sync: Component,
       },
@@ -59,18 +61,27 @@ describe('extensions', () => {
     const Component = () => <div />;
     const routeRef = createRouteRef({ id: 'foo' });
 
-    const extension1 = createComponentExtension({
-      component: {
-        sync: Component,
-      },
+    let extension1: ReturnType<typeof createComponentExtension>;
+    const { warn } = withLogCollector(['warn'], () => {
+      extension1 = createComponentExtension({
+        component: {
+          sync: Component,
+        },
+      });
     });
+    expect(warn).toEqual([
+      expect.stringMatching(
+        /^Declaring extensions without name is DEPRECATED. /,
+      ),
+    ]);
 
     const extension2 = createRoutableExtension({
+      name: 'Extension2',
       component: () => Promise.resolve(Component),
       mountPoint: routeRef,
     });
 
-    const ExtensionComponent1 = plugin.provide(extension1);
+    const ExtensionComponent1 = plugin.provide(extension1!);
     const ExtensionComponent2 = plugin.provide(extension2);
 
     const element1 = <ExtensionComponent1 />;
@@ -84,6 +95,7 @@ describe('extensions', () => {
   it('should wrap extended component with error boundary', async () => {
     const BrokenComponent = plugin.provide(
       createComponentExtension({
+        name: 'BrokenComponent',
         component: {
           sync: () => {
             throw new Error('Test error');
@@ -105,6 +117,34 @@ describe('extensions', () => {
       render(<BrokenComponent />);
     });
     screen.getByText('Error in my-plugin');
-    expect(errors[0]).toMatch('Test error');
+    expect(errors[0]).toMatchObject({ detail: new Error('Test error') });
+  });
+
+  it('should wrap extended component with analytics context', async () => {
+    const AnalyticsSpyExtension = plugin.provide(
+      createReactExtension({
+        name: 'AnalyticsSpy',
+        component: {
+          sync: () => {
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const context = useAnalyticsContext();
+            return (
+              <>
+                <div data-testid="plugin-id">{context.pluginId}</div>
+                <div data-testid="route-ref">{context.routeRef}</div>
+                <div data-testid="extension">{context.extension}</div>
+              </>
+            );
+          },
+        },
+        data: { 'core.mountPoint': { id: 'some-ref' } },
+      }),
+    );
+
+    const result = render(<AnalyticsSpyExtension />);
+
+    expect(result.getByTestId('plugin-id')).toHaveTextContent('my-plugin');
+    expect(result.getByTestId('route-ref')).toHaveTextContent('some-ref');
+    expect(result.getByTestId('extension')).toHaveTextContent('AnalyticsSpy');
   });
 });

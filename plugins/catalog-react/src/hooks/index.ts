@@ -13,16 +13,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export { EntityContext, useEntity, useEntityFromUrl } from './useEntity';
-export { useEntityCompoundName } from './useEntityCompoundName';
+export {
+  useEntity,
+  EntityProvider,
+  AsyncEntityProvider,
+  useAsyncEntity,
+} from './useEntity';
+export type {
+  EntityLoadingStatus,
+  EntityProviderProps,
+  AsyncEntityProviderProps,
+} from './useEntity';
 export {
   EntityListContext,
   EntityListProvider,
-  useEntityListProvider,
+  useEntityList,
 } from './useEntityListProvider';
-export type { DefaultEntityFilters } from './useEntityListProvider';
+export type {
+  DefaultEntityFilters,
+  EntityListContextProps,
+  EntityListProviderProps,
+  PaginationMode,
+} from './useEntityListProvider';
 export { useEntityTypeFilter } from './useEntityTypeFilter';
-export { useOwnUser } from './useOwnUser';
 export { useRelatedEntities } from './useRelatedEntities';
 export { useStarredEntities } from './useStarredEntities';
+export { useStarredEntity } from './useStarredEntity';
 export { useEntityOwnership } from './useEntityOwnership';

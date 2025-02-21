@@ -15,6 +15,7 @@
  */
 
 import { Config } from '@backstage/config';
+import { trimEnd } from 'lodash';
 import { isValidHost } from '../helpers';
 
 const GITHUB_HOST = 'github.com';
@@ -23,8 +24,10 @@ const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com';
 
 /**
  * The configuration parameters for a single GitHub integration.
+ *
+ * @public
  */
-export type GitHubIntegrationConfig = {
+export type GithubIntegrationConfig = {
   /**
    * The host of the target that this matches on, e.g. "github.com"
    */
@@ -69,7 +72,12 @@ export type GitHubIntegrationConfig = {
 
 /**
  * The configuration parameters for authenticating a GitHub Application.
- * A Github Apps configuration can be generated using the `backstage-cli create-github-app` command.
+ *
+ * @remarks
+ *
+ * A GitHub Apps configuration can be generated using the `backstage-cli create-github-app` command.
+ *
+ * @public
  */
 export type GithubAppConfig = {
   /**
@@ -106,15 +114,16 @@ export type GithubAppConfig = {
 /**
  * Reads a single GitHub integration config.
  *
- * @param config The config object of a single integration
+ * @param config - The config object of a single integration
+ * @public
  */
-export function readGitHubIntegrationConfig(
+export function readGithubIntegrationConfig(
   config: Config,
-): GitHubIntegrationConfig {
+): GithubIntegrationConfig {
   const host = config.getOptionalString('host') ?? GITHUB_HOST;
   let apiBaseUrl = config.getOptionalString('apiBaseUrl');
   let rawBaseUrl = config.getOptionalString('rawBaseUrl');
-  const token = config.getOptionalString('token');
+  const token = config.getOptionalString('token')?.trim();
   const apps = config.getOptionalConfigArray('apps')?.map(c => ({
     appId: c.getNumber('appId'),
     clientId: c.getString('clientId'),
@@ -133,13 +142,13 @@ export function readGitHubIntegrationConfig(
   }
 
   if (apiBaseUrl) {
-    apiBaseUrl = apiBaseUrl.replace(/\/+$/, '');
+    apiBaseUrl = trimEnd(apiBaseUrl, '/');
   } else if (host === GITHUB_HOST) {
     apiBaseUrl = GITHUB_API_BASE_URL;
   }
 
   if (rawBaseUrl) {
-    rawBaseUrl = rawBaseUrl.replace(/\/+$/, '');
+    rawBaseUrl = trimEnd(rawBaseUrl, '/');
   } else if (host === GITHUB_HOST) {
     rawBaseUrl = GITHUB_RAW_BASE_URL;
   }
@@ -151,13 +160,14 @@ export function readGitHubIntegrationConfig(
  * Reads a set of GitHub integration configs, and inserts some defaults for
  * public GitHub if not specified.
  *
- * @param configs All of the integration config objects
+ * @param configs - All of the integration config objects
+ * @public
  */
-export function readGitHubIntegrationConfigs(
+export function readGithubIntegrationConfigs(
   configs: Config[],
-): GitHubIntegrationConfig[] {
+): GithubIntegrationConfig[] {
   // First read all the explicit integrations
-  const result = configs.map(readGitHubIntegrationConfig);
+  const result = configs.map(readGithubIntegrationConfig);
 
   // If no explicit github.com integration was added, put one in the list as
   // a convenience

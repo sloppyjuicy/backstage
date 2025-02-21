@@ -13,5 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * A module for the search backend that implements search using PostgreSQL
+ *
+ * @packageDocumentation
+ */
+
+export { default } from './module';
 export * from './database';
 export * from './PgSearchEngine';

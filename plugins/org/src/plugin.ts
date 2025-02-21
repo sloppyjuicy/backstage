@@ -17,34 +17,50 @@ import {
   createComponentExtension,
   createPlugin,
 } from '@backstage/core-plugin-api';
+import { catalogIndexRouteRef } from './routes';
 
+/** @public */
 export const orgPlugin = createPlugin({
   id: 'org',
+  externalRoutes: {
+    catalogIndex: catalogIndexRouteRef,
+  },
 });
 
+/** @public */
 export const EntityGroupProfileCard = orgPlugin.provide(
   createComponentExtension({
+    name: 'EntityGroupProfileCard',
     component: {
       lazy: () => import('./components').then(m => m.GroupProfileCard),
     },
   }),
 );
+
+/** @public */
 export const EntityMembersListCard = orgPlugin.provide(
   createComponentExtension({
+    name: 'EntityMembersListCard',
     component: {
       lazy: () => import('./components').then(m => m.MembersListCard),
     },
   }),
 );
+
+/** @public */
 export const EntityOwnershipCard = orgPlugin.provide(
   createComponentExtension({
+    name: 'EntityOwnershipCard',
     component: {
       lazy: () => import('./components').then(m => m.OwnershipCard),
     },
   }),
 );
+
+/** @public */
 export const EntityUserProfileCard = orgPlugin.provide(
   createComponentExtension({
+    name: 'EntityUserProfileCard',
     component: {
       lazy: () => import('./components').then(m => m.UserProfileCard),
     },

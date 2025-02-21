@@ -15,21 +15,16 @@
  */
 
 import { GroupEntity } from '@backstage/catalog-model';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+import { ApiProvider } from '@backstage/core-app-api';
 import {
   CatalogApi,
   catalogApiRef,
-  EntityContext,
+  EntityProvider,
 } from '@backstage/plugin-catalog-react';
-import {
-  BackstageTheme,
-  createTheme,
-  genPageTheme,
-  shapes,
-} from '@backstage/theme';
-import { Grid, ThemeProvider } from '@material-ui/core';
+import { TestApiRegistry, wrapInTestApp } from '@backstage/test-utils';
+import Grid from '@material-ui/core/Grid';
 import React from 'react';
-import { MemoryRouter } from 'react-router';
+import { catalogIndexRouteRef } from '../../../routes';
 import { OwnershipCard } from './OwnershipCard';
 
 export default {
@@ -49,7 +44,7 @@ const defaultEntity: GroupEntity = {
       displayName: 'Team A',
       email: 'team-a@example.com',
       picture:
-        'https://avatars.dicebear.com/api/identicon/team-a@example.com.svg?background=%23fff&margin=25',
+        'https://api.dicebear.com/7.x/identicon/svg?seed=Fluffy&backgroundType=solid,gradientLinear&backgroundColor=ffd5dc,b6e3f4',
     },
     type: 'group',
     children: [],
@@ -68,69 +63,76 @@ const makeComponent = ({ type, name }: { type: string; name: string }) => ({
   relations: [
     {
       type: 'ownedBy',
+      targetRef: 'group:default/team-a',
       target: {
         namespace: 'default',
-        kind: 'Group',
+        kind: 'group',
         name: 'team-a',
       },
     },
   ],
 });
 
-const serviceA = makeComponent({ type: 'service', name: 'service-a' });
-const serviceB = makeComponent({ type: 'service', name: 'service-a' });
-const websiteA = makeComponent({ type: 'website', name: 'website-a' });
+const types = [
+  'service',
+  'website',
+  'api',
+  'playlist',
+  'grpc',
+  'trpc',
+  'library',
+];
+
+const components = types.map((type, index) =>
+  makeComponent({ type, name: `${type}-${index}` }),
+);
 
 const catalogApi: Partial<CatalogApi> = {
-  getEntities: () => Promise.resolve({ items: [serviceA, serviceB, websiteA] }),
+  getEntities: () => Promise.resolve({ items: components }),
 };
 
-const apiRegistry = ApiRegistry.from([[catalogApiRef, catalogApi]]);
+const apis = TestApiRegistry.from([catalogApiRef, catalogApi]);
 
-export const Default = () => (
-  <MemoryRouter>
-    <ApiProvider apis={apiRegistry}>
-      <EntityContext.Provider value={{ entity: defaultEntity, loading: false }}>
+export const Default = () =>
+  wrapInTestApp(
+    <ApiProvider apis={apis}>
+      <EntityProvider entity={defaultEntity}>
         <Grid container spacing={4}>
-          <Grid item xs={12} md={6}>
+          <Grid
+            item
+            xs={12}
+            md={6}
+            style={{ maxHeight: 320, overflow: 'hidden' }}
+          >
             <OwnershipCard />
           </Grid>
         </Grid>
-      </EntityContext.Provider>
-    </ApiProvider>
-  </MemoryRouter>
-);
-
-const monochromeTheme = (outer: BackstageTheme) =>
-  createTheme({
-    ...outer,
-    defaultPageTheme: 'home',
-    pageTheme: {
-      home: genPageTheme(['#444'], shapes.wave2),
-      documentation: genPageTheme(['#474747'], shapes.wave2),
-      tool: genPageTheme(['#222'], shapes.wave2),
-      service: genPageTheme(['#aaa'], shapes.wave2),
-      website: genPageTheme(['#0e0e0e'], shapes.wave2),
-      library: genPageTheme(['#9d9d9d'], shapes.wave2),
-      other: genPageTheme(['#aaa'], shapes.wave2),
-      app: genPageTheme(['#666'], shapes.wave2),
+      </EntityProvider>
+    </ApiProvider>,
+    {
+      mountedRoutes: { '/catalog': catalogIndexRouteRef },
     },
-  });
+  );
 
-export const Themed = () => (
-  <MemoryRouter>
-    <ThemeProvider theme={monochromeTheme}>
-      <ApiProvider apis={apiRegistry}>
-        <EntityContext.Provider
-          value={{ entity: defaultEntity, loading: false }}
-        >
+export const WithVariableEntityList = {
+  argTypes: {
+    entityLimit: {
+      control: { type: 'number' },
+    },
+  },
+  render: ({ entityLimit }: { entityLimit: number }) =>
+    wrapInTestApp(
+      <ApiProvider apis={apis}>
+        <EntityProvider entity={defaultEntity}>
           <Grid container spacing={4}>
             <Grid item xs={12} md={6}>
-              <OwnershipCard />
+              <OwnershipCard entityLimit={entityLimit} />
             </Grid>
           </Grid>
-        </EntityContext.Provider>
-      </ApiProvider>
-    </ThemeProvider>
-  </MemoryRouter>
-);
+        </EntityProvider>
+      </ApiProvider>,
+      {
+        mountedRoutes: { '/catalog': catalogIndexRouteRef },
+      },
+    ),
+};

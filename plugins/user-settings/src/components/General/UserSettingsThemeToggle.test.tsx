@@ -15,42 +15,44 @@
  */
 
 import { AppTheme, appThemeApiRef } from '@backstage/core-plugin-api';
-import { renderWithEffects, wrapInTestApp } from '@backstage/test-utils';
+import { TestApiRegistry, renderInTestApp } from '@backstage/test-utils';
 import { lightTheme } from '@backstage/theme';
-import { fireEvent } from '@testing-library/react';
+import { ThemeProvider } from '@material-ui/core/styles';
+import CssBaseline from '@material-ui/core/CssBaseline';
+import { fireEvent, screen } from '@testing-library/react';
 import React from 'react';
 import { UserSettingsThemeToggle } from './UserSettingsThemeToggle';
-import {
-  ApiProvider,
-  ApiRegistry,
-  AppThemeSelector,
-} from '@backstage/core-app-api';
+import { ApiProvider, AppThemeSelector } from '@backstage/core-app-api';
 
 const mockTheme: AppTheme = {
   id: 'light-theme',
   title: 'Mock Theme',
   variant: 'light',
-  theme: lightTheme,
+  Provider: ({ children }) => (
+    <ThemeProvider theme={lightTheme}>
+      <CssBaseline>{children}</CssBaseline>
+    </ThemeProvider>
+  ),
 };
 
-const apiRegistry = ApiRegistry.from([
-  [appThemeApiRef, AppThemeSelector.createWithStorage([mockTheme])],
+const apiRegistry = TestApiRegistry.from([
+  appThemeApiRef,
+  AppThemeSelector.createWithStorage([mockTheme]),
 ]);
 
 describe('<UserSettingsThemeToggle />', () => {
   it('toggles the theme select button', async () => {
     const themeApi = apiRegistry.get(appThemeApiRef);
-    const rendered = await renderWithEffects(
-      wrapInTestApp(
-        <ApiProvider apis={apiRegistry}>
-          <UserSettingsThemeToggle />
-        </ApiProvider>,
-      ),
+
+    await renderInTestApp(
+      <ApiProvider apis={apiRegistry}>
+        <UserSettingsThemeToggle />
+      </ApiProvider>,
     );
 
-    expect(rendered.getByText('Theme')).toBeInTheDocument();
+    expect(screen.getByText('Theme')).toBeInTheDocument();
 
-    const themeButton = rendered.getByTitle('Select Mock Theme');
+    const themeButton = screen.getByText('Mock Theme');
     expect(themeApi?.getActiveThemeId()).toBe(undefined);
     fireEvent.click(themeButton);
     expect(themeApi?.getActiveThemeId()).toBe('light-theme');

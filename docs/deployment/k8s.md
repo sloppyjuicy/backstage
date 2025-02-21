@@ -107,10 +107,14 @@ $ echo -n "backstage" | base64
 YmFja3N0YWdl
 ```
 
-> Note: Secrets are base64-encoded, but not encrypted. Be sure to enable
-> [Encryption at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
-> for the cluster. For storing secrets in Git, consider
-> [SealedSecrets or other solutions](https://learnk8s.io/kubernetes-secrets-in-git).
+:::note Note
+
+Secrets are base64-encoded, but not encrypted. Be sure to enable
+[Encryption at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+for the cluster. For storing secrets in Git, consider
+[SealedSecrets or other solutions](https://learnk8s.io/kubernetes-secrets-in-git).
+
+:::
 
 The secrets can now be applied to the Kubernetes cluster:
 
@@ -165,7 +169,7 @@ Kubernetes definitions in a single file and apply them at the same time.
 Note the volume `type: local`; this creates a volume using local disk on
 Kubernetes nodes. More likely in a production scenario, you'd want to use a more
 highly available
-[type of PersistentVolume](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#types-of-persistent-volumes).
+[types of PersistentVolume](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#types-of-persistent-volumes).
 
 Apply the storage volume and claim to the Kubernetes cluster:
 
@@ -206,9 +210,15 @@ spec:
           envFrom:
             - secretRef:
                 name: postgres-secrets
+          env:
+            - name: POSTGRES_HOST
+              value: postgres.backstage
+            - name: POSTGRES_PORT
+              value: '5432'
           volumeMounts:
             - mountPath: /var/lib/postgresql/data
               name: postgresdb
+              subPath: data
       volumes:
         - name: postgresdb
           persistentVolumeClaim:
@@ -256,7 +266,7 @@ bash-5.1# exit
 
 The database pod is running, but how does another pod connect to it?
 
-Kubernetes pods are transient - they can be killed, restarted, or created
+Kubernetes pods are transient - they can be stopped, restarted, or created
 dynamically. Therefore we don't want to try to connect to pods directly, but
 rather create a Kubernetes Service. Services keep track of pods and direct
 traffic to the right place.
@@ -351,7 +361,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 7000
+              containerPort: 7007
           envFrom:
             - secretRef:
                 name: postgres-secrets
@@ -361,11 +371,11 @@ spec:
 # https://backstage.io/docs/plugins/observability#health-checks
 #          readinessProbe:
 #            httpGet:
-#              port: 7000
+#              port: 7007
 #              path: /healthcheck
 #          livenessProbe:
 #            httpGet:
-#              port: 7000
+#              port: 7007
 #              path: /healthcheck
 ```
 
@@ -382,17 +392,17 @@ $ yarn build-image --tag backstage:1.0.0
 ```
 
 There is no special wiring needed to access the PostgreSQL service. Since it's
-running on the same cluster, Kubernetes will inject `POSTGRES_SERVICE_HOST` and
-`POSTGRES_SERVICE_PORT` environment variables into our Backstage container.
-These can be used in the Backstage `app-config.yaml` along with the secrets:
+running on the same cluster, Kubernetes will inject `POSTGRES_HOST` and
+`POSTGRES_PORT` environment variables into our Backstage container.
+These can be used in the Backstage `app-config.yaml` along with the secrets. Apply this to `app-config.production.yaml` as well if you have one:
 
 ```yaml
 backend:
   database:
     client: pg
     connection:
-      host: ${POSTGRES_SERVICE_HOST}
-      port: ${POSTGRES_SERVICE_PORT}
+      host: ${POSTGRES_HOST}
+      port: ${POSTGRES_PORT}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
 ```
@@ -449,7 +459,7 @@ spec:
 ```
 
 The `selector` here is telling the Service which pods to target, and the port
-mapping translates normal HTTP port 80 to the backend http port (7000) on the
+mapping translates normal HTTP port 80 to the backend http port (7007) on the
 pod.
 
 Apply this Service to the Kubernetes cluster:
@@ -464,10 +474,10 @@ reveal**_, you can forward a local port to the service:
 
 ```shell
 $ sudo kubectl port-forward --namespace=backstage svc/backstage 80:80
-Forwarding from 127.0.0.1:80 -> 7000
+Forwarding from 127.0.0.1:80 -> 7007
 ```
 
-This shows port 7000 since `port-forward` doesn't _really_ support services, so
+This shows port 7007 since `port-forward` doesn't _really_ support services, so
 it cheats by looking up the first pod for a service and connecting to the mapped
 pod port.
 
@@ -486,7 +496,7 @@ organization:
 backend:
   baseUrl: http://localhost
   listen:
-    port: 7000
+    port: 7007
   cors:
     origin: http://localhost
 ```

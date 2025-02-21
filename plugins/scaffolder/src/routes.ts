@@ -16,13 +16,83 @@
 import {
   createExternalRouteRef,
   createRouteRef,
+  createSubRouteRef,
 } from '@backstage/core-plugin-api';
 
 export const registerComponentRouteRef = createExternalRouteRef({
   id: 'register-component',
   optional: true,
+  defaultTarget: 'catalog-import.importPage',
 });
 
+export const viewTechDocRouteRef = createExternalRouteRef({
+  id: 'view-techdoc',
+  optional: true,
+  params: ['namespace', 'kind', 'name'],
+  defaultTarget: 'techdocs.docRoot',
+});
+
+/**
+ * @public
+ */
 export const rootRouteRef = createRouteRef({
-  title: 'Create new entity',
+  id: 'scaffolder',
+});
+
+/**
+ * @deprecated This is the old template route, can be deleted before next major release
+ * @public
+ */
+export const legacySelectedTemplateRouteRef = createSubRouteRef({
+  id: 'scaffolder/legacy/selected-template',
+  parent: rootRouteRef,
+  path: '/templates/:templateName',
+});
+
+export const selectedTemplateRouteRef = createSubRouteRef({
+  id: 'scaffolder/selected-template',
+  parent: rootRouteRef,
+  path: '/templates/:namespace/:templateName',
+});
+
+export const scaffolderTaskRouteRef = createSubRouteRef({
+  id: 'scaffolder/task',
+  parent: rootRouteRef,
+  path: '/tasks/:taskId',
+});
+
+export const scaffolderListTaskRouteRef = createSubRouteRef({
+  id: 'scaffolder/list-tasks',
+  parent: rootRouteRef,
+  path: '/tasks',
+});
+
+export const actionsRouteRef = createSubRouteRef({
+  id: 'scaffolder/actions',
+  parent: rootRouteRef,
+  path: '/actions',
+});
+
+export const editRouteRef = createSubRouteRef({
+  id: 'scaffolder/edit',
+  parent: rootRouteRef,
+  path: '/edit',
+});
+
+export const editorRouteRef = createSubRouteRef({
+  id: 'scaffolder/editor',
+  parent: rootRouteRef,
+  path: '/template',
+});
+
+export const customFieldsRouteRef = createSubRouteRef({
+  id: 'scaffolder/customFields',
+  parent: rootRouteRef,
+  path: '/custom-fields',
+});
+
+export const templateFormRouteRef = createSubRouteRef({
+  id: 'scaffolder/editorForm',
+  parent: rootRouteRef,
+  path: '/template-form',
 });

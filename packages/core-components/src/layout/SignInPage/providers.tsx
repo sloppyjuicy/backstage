@@ -17,10 +17,10 @@
 import React, { useLayoutEffect, useState, useMemo, useCallback } from 'react';
 import {
   SignInPageProps,
-  SignInResult,
   useApi,
   useApiHolder,
   errorApiRef,
+  IdentityApi,
 } from '@backstage/core-plugin-api';
 import {
   IdentityProviders,
@@ -30,6 +30,12 @@ import {
 import { commonProvider } from './commonProvider';
 import { guestProvider } from './guestProvider';
 import { customProvider } from './customProvider';
+import { IdentityApiSignOutProxy } from './IdentityApiSignOutProxy';
+import { useSearchParams } from 'react-router-dom';
+import { useMountEffect } from '@react-hookz/web';
+import { ForwardedError } from '@backstage/errors';
+import { coreComponentsTranslationRef } from '../../translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
 const PROVIDER_STORAGE_KEY = '@backstage/core:SignInPage:provider';
 
@@ -81,24 +87,39 @@ export function getSignInProviders(
 
 export const useSignInProviders = (
   providers: SignInProviderType,
-  onResult: SignInPageProps['onResult'],
+  onSignInSuccess: SignInPageProps['onSignInSuccess'],
 ) => {
   const errorApi = useApi(errorApiRef);
   const apiHolder = useApiHolder();
   const [loading, setLoading] = useState(true);
 
+  const { t } = useTranslationRef(coreComponentsTranslationRef);
+  // User was redirected back to sign in page with error from auth redirect flow
+  const [searchParams, _setSearchParams] = useSearchParams();
+
+  useMountEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam) {
+      errorApi.post(
+        new ForwardedError(t('signIn.loginFailed'), new Error(errorParam)),
+      );
+    }
+  });
+
   // This decorates the result with sign out logic from this hook
   const handleWrappedResult = useCallback(
-    (result: SignInResult) => {
-      onResult({
-        ...result,
-        signOut: async () => {
-          localStorage.removeItem(PROVIDER_STORAGE_KEY);
-          await result.signOut?.();
-        },
-      });
+    (identityApi: IdentityApi) => {
+      onSignInSuccess(
+        IdentityApiSignOutProxy.from({
+          identityApi,
+          signOut: async () => {
+            localStorage.removeItem(PROVIDER_STORAGE_KEY);
+            await identityApi.signOut?.();
+          },
+        }),
+      );
     },
-    [onResult],
+    [onSignInSuccess],
   );
 
   // In this effect we check if the user has already selected an existing login
@@ -131,6 +152,7 @@ export const useSignInProviders = (
       .loader(apiHolder, provider.config?.apiRef!)
       .then(result => {
         if (didCancel) {
+          localStorage.removeItem(PROVIDER_STORAGE_KEY);
           return;
         }
         if (result) {
@@ -140,10 +162,10 @@ export const useSignInProviders = (
         }
       })
       .catch(error => {
+        localStorage.removeItem(PROVIDER_STORAGE_KEY);
         if (didCancel) {
           return;
         }
-        localStorage.removeItem(PROVIDER_STORAGE_KEY);
         errorApi.post(error);
         setLoading(false);
       });
@@ -151,7 +173,14 @@ export const useSignInProviders = (
     return () => {
       didCancel = true;
     };
-  }, [loading, errorApi, onResult, apiHolder, providers, handleWrappedResult]);
+  }, [
+    loading,
+    errorApi,
+    onSignInSuccess,
+    apiHolder,
+    providers,
+    handleWrappedResult,
+  ]);
 
   // This renders all available sign-in providers
   const elements = useMemo(
@@ -161,17 +190,28 @@ export const useSignInProviders = (
 
         const { Component } = provider.components;
 
-        const handleResult = (result: SignInResult) => {
-          localStorage.setItem(PROVIDER_STORAGE_KEY, provider.id);
-
+        const handleSignInSuccess = (result: IdentityApi) => {
           handleWrappedResult(result);
+        };
+
+        const handleSignInStarted = () => {
+          localStorage.setItem(
+            PROVIDER_STORAGE_KEY,
+            provider?.config?.id || provider.id,
+          );
+        };
+
+        const handleSignInFailure = () => {
+          localStorage.removeItem(PROVIDER_STORAGE_KEY);
         };
 
         return (
           <Component
             key={provider.id}
             config={provider.config!}
-            onResult={handleResult}
+            onSignInStarted={handleSignInStarted}
+            onSignInSuccess={handleSignInSuccess}
+            onSignInFailure={handleSignInFailure}
           />
         );
       }),

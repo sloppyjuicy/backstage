@@ -14,44 +14,48 @@
  * limitations under the License.
  */
 
-import { makeStyles, Tooltip, TooltipProps } from '@material-ui/core';
-import React, { useState } from 'react';
-import TextTruncate, { TextTruncateProps } from 'react-text-truncate';
+import { makeStyles } from '@material-ui/core/styles';
+import Tooltip, { TooltipProps } from '@material-ui/core/Tooltip';
+import React from 'react';
+import Typography from '@material-ui/core/Typography';
 
 type Props = {
-  text: TextTruncateProps['text'];
-  line?: TextTruncateProps['line'];
-  element?: TextTruncateProps['element'];
+  text?: string | undefined;
   title?: TooltipProps['title'];
+  line?: number | undefined;
   placement?: TooltipProps['placement'];
 };
 
-const useStyles = makeStyles({
-  container: {
-    overflow: 'visible !important',
+export type OverflowTooltipClassKey = 'container';
+
+const useStyles = makeStyles(
+  {
+    container: {
+      overflow: 'visible !important',
+    },
+    typo: {
+      fontSize: 'inherit',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      display: '-webkit-box',
+      '-webkit-line-clamp': ({ line }: Props) => line || 1,
+      '-webkit-box-orient': 'vertical',
+    },
   },
-});
+  { name: 'BackstageOverflowTooltip' },
+);
 
-export const OverflowTooltip = (props: Props) => {
-  const [hover, setHover] = useState(false);
-  const classes = useStyles();
-
-  const handleToggled = (truncated: boolean) => {
-    setHover(truncated);
-  };
+export function OverflowTooltip(props: Props) {
+  const classes = useStyles(props);
 
   return (
     <Tooltip
       title={props.title ?? (props.text || '')}
       placement={props.placement}
-      disableHoverListener={!hover}
     >
-      <TextTruncate
-        text={props.text}
-        line={props.line}
-        onToggled={handleToggled}
-        containerClassName={classes.container}
-      />
+      <Typography className={classes.typo} variant="inherit">
+        {props.text}
+      </Typography>
     </Tooltip>
   );
-};
+}

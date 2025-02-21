@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-import {
-  Checkbox,
-  Grid,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-} from '@material-ui/core';
+import Checkbox from '@material-ui/core/Checkbox';
+import Grid from '@material-ui/core/Grid';
+import ListItem from '@material-ui/core/ListItem';
+import ListItemIcon from '@material-ui/core/ListItemIcon';
+import ListItemText from '@material-ui/core/ListItemText';
+import Typography from '@material-ui/core/Typography';
+import LocationOnIcon from '@material-ui/icons/LocationOn';
 import React, { useCallback, useState } from 'react';
 import { AnalyzeResult } from '../../api';
 import { BackButton, NextButton } from '../Buttons';
 import { EntityListComponent } from '../EntityListComponent';
 import { PrepareResult } from '../useImportState';
+import partition from 'lodash/partition';
 
 type Props = {
   analyzeResult: Extract<AnalyzeResult, { type: 'locations' }>;
@@ -38,10 +38,10 @@ type Props = {
 /**
  * A form that lets a user select one of a list of locations to import
  *
- * @param analyzeResult the result of the analysis
- * @param prepareResult the selectected locations from a previous step
- * @param onPrepare called after the selection
- * @param onGoBack called to go back to the previous step
+ * @param analyzeResult - the result of the analysis
+ * @param prepareResult - the selectected locations from a previous step
+ * @param onPrepare - called after the selection
+ * @param onGoBack - called to go back to the previous step
  */
 export const StepPrepareSelectLocations = ({
   analyzeResult,
@@ -53,14 +53,17 @@ export const StepPrepareSelectLocations = ({
     prepareResult?.locations.map(l => l.target) || [],
   );
 
+  const [existingLocations, locations] = partition(
+    analyzeResult?.locations,
+    l => l.exists,
+  );
+
   const handleResult = useCallback(async () => {
     onPrepare({
       type: 'locations',
-      locations: analyzeResult.locations.filter((l: any) =>
-        selectedUrls.includes(l.target),
-      ),
+      locations: locations.filter((l: any) => selectedUrls.includes(l.target)),
     });
-  }, [analyzeResult.locations, onPrepare, selectedUrls]);
+  }, [locations, onPrepare, selectedUrls]);
 
   const onItemClick = (url: string) => {
     setSelectedUrls(urls =>
@@ -70,48 +73,62 @@ export const StepPrepareSelectLocations = ({
 
   const onSelectAll = () => {
     setSelectedUrls(urls =>
-      urls.length < analyzeResult.locations.length
-        ? analyzeResult.locations.map(l => l.target)
-        : [],
+      urls.length < locations.length ? locations.map(l => l.target) : [],
     );
   };
 
   return (
     <>
-      <Typography>
-        Select one or more locations that are present in your git repository:
-      </Typography>
-
-      <EntityListComponent
-        firstListItem={
-          <ListItem dense button onClick={onSelectAll}>
-            <ListItemIcon>
+      {locations.length > 0 && (
+        <>
+          <Typography>
+            Select one or more locations that are present in your git
+            repository:
+          </Typography>
+          <EntityListComponent
+            firstListItem={
+              <ListItem dense button onClick={onSelectAll}>
+                <ListItemIcon>
+                  <Checkbox
+                    edge="start"
+                    checked={selectedUrls.length === locations.length}
+                    indeterminate={
+                      selectedUrls.length > 0 &&
+                      selectedUrls.length < locations.length
+                    }
+                    tabIndex={-1}
+                    disableRipple
+                  />
+                </ListItemIcon>
+                <ListItemText primary="Select All" />
+              </ListItem>
+            }
+            onItemClick={onItemClick}
+            locations={locations}
+            locationListItemIcon={target => (
               <Checkbox
                 edge="start"
-                checked={selectedUrls.length === analyzeResult.locations.length}
-                indeterminate={
-                  selectedUrls.length > 0 &&
-                  selectedUrls.length < analyzeResult.locations.length
-                }
+                checked={selectedUrls.includes(target)}
                 tabIndex={-1}
                 disableRipple
               />
-            </ListItemIcon>
-            <ListItemText primary="Select All" />
-          </ListItem>
-        }
-        onItemClick={onItemClick}
-        locations={analyzeResult.locations}
-        locationListItemIcon={target => (
-          <Checkbox
-            edge="start"
-            checked={selectedUrls.includes(target)}
-            tabIndex={-1}
-            disableRipple
+            )}
+            collapsed
           />
-        )}
-        collapsed
-      />
+        </>
+      )}
+
+      {existingLocations.length > 0 && (
+        <>
+          <Typography>These locations already exist in the catalog:</Typography>
+          <EntityListComponent
+            locations={existingLocations}
+            locationListItemIcon={() => <LocationOnIcon />}
+            withLinks
+            collapsed
+          />
+        </>
+      )}
 
       <Grid container spacing={0}>
         {onGoBack && <BackButton onClick={onGoBack} />}

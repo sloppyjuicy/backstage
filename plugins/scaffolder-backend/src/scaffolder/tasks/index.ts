@@ -15,5 +15,26 @@
  */
 
 export { DatabaseTaskStore } from './DatabaseTaskStore';
-export { StorageTaskBroker } from './StorageTaskBroker';
+export type { DatabaseTaskStoreOptions } from './DatabaseTaskStore';
+export { TaskManager } from './StorageTaskBroker';
+export type { CurrentClaimedTask } from './StorageTaskBroker';
 export { TaskWorker } from './TaskWorker';
+export type { CreateWorkerOptions } from './TaskWorker';
+export type {
+  TaskCompletionState,
+  TaskStoreEmitOptions,
+  TaskStoreListEventsOptions,
+  TaskStoreShutDownTaskOptions,
+  SerializedTask,
+  SerializedTaskEvent,
+  TaskStatus,
+  TaskEventType,
+  TaskBroker,
+  TaskContext,
+  TaskStore,
+  TaskBrokerDispatchResult,
+  TaskBrokerDispatchOptions,
+  TaskStoreCreateTaskOptions,
+  TaskStoreRecoverTaskOptions,
+  TaskStoreCreateTaskResult,
+} from './types';

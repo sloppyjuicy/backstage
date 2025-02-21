@@ -16,20 +16,26 @@
 
 import React from 'react';
 import { makeStyles } from '@material-ui/core/styles';
-import { BackstageTheme } from '@backstage/theme';
-import { RenderNodeProps } from './types';
+import { DependencyGraphTypes as Types } from './types';
 
-const useStyles = makeStyles((theme: BackstageTheme) => ({
-  node: {
-    fill: theme.palette.background.paper,
-    stroke: theme.palette.border,
-  },
-  text: {
-    fill: theme.palette.textContrast,
-  },
-}));
+/** @public */
+export type DependencyGraphDefaultNodeClassKey = 'node' | 'text';
 
-export function DefaultNode({ node: { id } }: RenderNodeProps) {
+const useStyles = makeStyles(
+  theme => ({
+    node: {
+      fill: theme.palette.primary.light,
+      stroke: theme.palette.primary.light,
+    },
+    text: {
+      fill: theme.palette.primary.contrastText,
+    },
+  }),
+  { name: 'BackstageDependencyGraphDefaultNode' },
+);
+
+/** @public */
+export function DefaultNode({ node: { id } }: Types.RenderNodeProps) {
   const classes = useStyles();
   const [width, setWidth] = React.useState(0);
   const [height, setHeight] = React.useState(0);

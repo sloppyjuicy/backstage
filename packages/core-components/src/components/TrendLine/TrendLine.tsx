@@ -21,10 +21,9 @@ import {
   SparklinesLineProps,
   SparklinesProps,
 } from 'react-sparklines';
-import { useTheme } from '@material-ui/core';
-import { BackstageTheme } from '@backstage/theme';
+import { Theme, useTheme } from '@material-ui/core/styles';
 
-function color(data: number[], theme: BackstageTheme): string | undefined {
+function color(data: number[], theme: Theme): string | undefined {
   const lastNum = data[data.length - 1];
   if (!lastNum) return undefined;
   if (lastNum >= 0.9) return theme.palette.status.ok;
@@ -32,11 +31,11 @@ function color(data: number[], theme: BackstageTheme): string | undefined {
   return theme.palette.status.error;
 }
 
-export const TrendLine = (
+export function TrendLine(
   props: SparklinesProps &
     Pick<SparklinesLineProps, 'color'> & { title?: string },
-) => {
-  const theme = useTheme<BackstageTheme>();
+) {
+  const theme = useTheme();
 
   if (!props.data) return null;
   return (
@@ -45,4 +44,4 @@ export const TrendLine = (
       <SparklinesLine color={props.color ?? color(props.data, theme)} />
     </Sparklines>
   );
-};
+}

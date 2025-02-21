@@ -14,4 +14,11 @@
  * limitations under the License.
  */
 
+/**
+ * A Backstage backend plugin that helps you set up proxy endpoints in the backend
+ *
+ * @packageDocumentation
+ */
+
+export { proxyPlugin as default } from './plugin';
 export * from './service';

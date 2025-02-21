@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-import { render } from '@testing-library/react';
+import { renderInTestApp } from '@backstage/test-utils';
+import { screen } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter } from 'react-router';
+import { entityRouteRef } from '../../routes';
 import { EntityRefLinks } from './EntityRefLinks';
 
 describe('<EntityRefLinks />', () => {
-  it('renders a single link', () => {
+  it('renders a single link', async () => {
     const entityNames = [
       {
         kind: 'Component',
@@ -28,16 +29,18 @@ describe('<EntityRefLinks />', () => {
         name: 'software',
       },
     ];
-    const { getByText } = render(<EntityRefLinks entityRefs={entityNames} />, {
-      wrapper: MemoryRouter,
+    await renderInTestApp(<EntityRefLinks entityRefs={entityNames} />, {
+      mountedRoutes: {
+        '/catalog/:namespace/:kind/:name/*': entityRouteRef,
+      },
     });
-    expect(getByText('component:software')).toHaveAttribute(
+    expect(screen.getByText('software').closest('a')).toHaveAttribute(
       'href',
       '/catalog/default/component/software',
     );
   });
 
-  it('renders multiple links', () => {
+  it('renders multiple links', async () => {
     const entityNames = [
       {
         kind: 'Component',
@@ -50,15 +53,17 @@ describe('<EntityRefLinks />', () => {
         name: 'interface',
       },
     ];
-    const { getByText } = render(<EntityRefLinks entityRefs={entityNames} />, {
-      wrapper: MemoryRouter,
+    await renderInTestApp(<EntityRefLinks entityRefs={entityNames} />, {
+      mountedRoutes: {
+        '/catalog/:namespace/:kind/:name/*': entityRouteRef,
+      },
     });
-    expect(getByText(',')).toBeInTheDocument();
-    expect(getByText('component:software')).toHaveAttribute(
+    expect(screen.getByText(',')).toBeInTheDocument();
+    expect(screen.getByText('software').closest('a')).toHaveAttribute(
       'href',
       '/catalog/default/component/software',
     );
-    expect(getByText('api:interface')).toHaveAttribute(
+    expect(screen.getByText('interface').closest('a')).toHaveAttribute(
       'href',
       '/catalog/default/api/interface',
     );

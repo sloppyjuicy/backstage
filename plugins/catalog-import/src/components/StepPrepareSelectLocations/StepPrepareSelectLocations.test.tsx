@@ -14,18 +14,25 @@
  * limitations under the License.
  */
 
-import { act, render } from '@testing-library/react';
+import { TestApiProvider, renderInTestApp } from '@backstage/test-utils';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { AnalyzeResult } from '../../api';
 import { StepPrepareSelectLocations } from './StepPrepareSelectLocations';
+import {
+  catalogApiRef,
+  entityPresentationApiRef,
+} from '@backstage/plugin-catalog-react';
+import { DefaultEntityPresentationApi } from '@backstage/plugin-catalog';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
 
 describe('<StepPrepareSelectLocations />', () => {
   const analyzeResult = {
     type: 'locations',
     locations: [
       {
-        target: 'url',
+        target: 'url-1',
         entities: [
           {
             kind: 'component',
@@ -52,64 +59,133 @@ describe('<StepPrepareSelectLocations />', () => {
     ],
   } as Extract<AnalyzeResult, { type: 'locations' }>;
 
+  const catalogApi = catalogApiMock();
+  let Wrapper: React.ComponentType<React.PropsWithChildren<{}>>;
+
   beforeEach(() => {
     jest.resetAllMocks();
+    Wrapper = ({ children }: { children?: React.ReactNode }) => (
+      <TestApiProvider
+        apis={[
+          [catalogApiRef, catalogApi],
+          [
+            entityPresentationApiRef,
+            DefaultEntityPresentationApi.create({ catalogApi }),
+          ],
+        ]}
+      >
+        {children}
+      </TestApiProvider>
+    );
   });
 
-  it('renders without exploding', async () => {
-    const { getByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        onPrepare={() => undefined}
-        onGoBack={() => undefined}
-      />,
+  it('renders display locations to be added', async () => {
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          onPrepare={() => undefined}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
     );
 
-    expect(getByRole('button', { name: /Review/i })).toBeDisabled();
+    expect(screen.getByText('url-1')).toBeInTheDocument();
+    expect(screen.getByText('url-2')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Select one or more locations/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/locations already exist/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review/i })).toBeDisabled();
+  });
+
+  it('should display existing locations only', async () => {
+    const analyzeResultWithExistingLocation = {
+      type: 'locations',
+      locations: [
+        {
+          target: 'my-target',
+          exists: true,
+          entities: [
+            {
+              kind: 'component',
+              namespace: 'default',
+              name: 'name',
+            },
+          ],
+        },
+      ],
+    } as Extract<AnalyzeResult, { type: 'locations' }>;
+
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResultWithExistingLocation}
+          onPrepare={() => undefined}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByText(/my-target/)).toBeInTheDocument();
+    expect(screen.getByText(/locations already exist/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Select one or more locations/),
+    ).not.toBeInTheDocument();
   });
 
   it('should select and deselect all', async () => {
-    const { getByRole, getAllByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        onPrepare={() => undefined}
-        onGoBack={() => undefined}
-      />,
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          onPrepare={() => undefined}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
     );
 
-    const checkboxes = getAllByRole('checkbox');
+    const checkboxes = screen.getAllByRole('checkbox');
     checkboxes.forEach(c => expect(c).not.toBeChecked());
-    expect(getByRole('button', { name: /Review/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Review/i })).toBeDisabled();
 
     await act(async () => {
-      userEvent.click(getByRole('button', { name: /Select All/i }));
+      await userEvent.click(
+        screen.getByRole('button', { name: /Select All/i }),
+      );
     });
 
     checkboxes.forEach(c => expect(c).toBeChecked());
-    expect(getByRole('button', { name: /Review/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /Review/i })).not.toBeDisabled();
 
     await act(async () => {
-      userEvent.click(getByRole('button', { name: /Select All/i }));
+      await userEvent.click(
+        screen.getByRole('button', { name: /Select All/i }),
+      );
     });
 
     checkboxes.forEach(c => expect(c).not.toBeChecked());
-    expect(getByRole('button', { name: /Review/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Review/i })).toBeDisabled();
   });
 
   it('should preselect prepared locations', async () => {
-    const { getAllByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        prepareResult={{
-          ...analyzeResult,
-          locations: [...analyzeResult.locations.slice(0, 1)],
-        }}
-        onPrepare={() => undefined}
-        onGoBack={() => undefined}
-      />,
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          prepareResult={{
+            ...analyzeResult,
+            locations: [...analyzeResult.locations.slice(0, 1)],
+          }}
+          onPrepare={() => undefined}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
     );
 
-    const checkboxes = getAllByRole('checkbox');
+    const checkboxes = screen.getAllByRole('checkbox');
 
     expect(checkboxes[0]).not.toBeChecked();
     expect(checkboxes[1]).toBeChecked();
@@ -117,19 +193,21 @@ describe('<StepPrepareSelectLocations />', () => {
   });
 
   it('should select items', async () => {
-    const { getAllByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        onPrepare={() => undefined}
-        onGoBack={() => undefined}
-      />,
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          onPrepare={() => undefined}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
     );
 
-    const checkboxes = getAllByRole('checkbox');
+    const checkboxes = screen.getAllByRole('checkbox');
     checkboxes.forEach(c => expect(c).not.toBeChecked());
 
     await act(async () => {
-      userEvent.click(checkboxes[1]);
+      await userEvent.click(checkboxes[1]);
     });
 
     expect(checkboxes[0]).not.toBeChecked();
@@ -137,7 +215,7 @@ describe('<StepPrepareSelectLocations />', () => {
     expect(checkboxes[2]).not.toBeChecked();
 
     await act(async () => {
-      userEvent.click(checkboxes[1]);
+      await userEvent.click(checkboxes[1]);
     });
 
     checkboxes.forEach(c => expect(c).not.toBeChecked());
@@ -146,48 +224,52 @@ describe('<StepPrepareSelectLocations />', () => {
   it('should go back', async () => {
     const onGoBack = jest.fn();
 
-    const { getByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        onPrepare={() => undefined}
-        onGoBack={onGoBack}
-      />,
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          onPrepare={() => undefined}
+          onGoBack={onGoBack}
+        />
+      </Wrapper>,
     );
 
     await act(async () => {
-      userEvent.click(getByRole('button', { name: /Back/i }));
+      await userEvent.click(screen.getByRole('button', { name: /Back/i }));
     });
 
-    expect(onGoBack).toBeCalledTimes(1);
+    expect(onGoBack).toHaveBeenCalledTimes(1);
   });
 
   it('should submit', async () => {
     const onPrepare = jest.fn();
 
-    const { getAllByRole, getByRole } = render(
-      <StepPrepareSelectLocations
-        analyzeResult={analyzeResult}
-        onPrepare={onPrepare}
-        onGoBack={() => undefined}
-      />,
+    await renderInTestApp(
+      <Wrapper>
+        <StepPrepareSelectLocations
+          analyzeResult={analyzeResult}
+          onPrepare={onPrepare}
+          onGoBack={() => undefined}
+        />
+      </Wrapper>,
     );
 
-    const checkboxes = getAllByRole('checkbox');
+    const checkboxes = screen.getAllByRole('checkbox');
 
     await act(async () => {
-      userEvent.click(checkboxes[1]);
+      await userEvent.click(checkboxes[1]);
     });
 
     await act(async () => {
-      userEvent.click(getByRole('button', { name: /Review/i }));
+      await userEvent.click(screen.getByRole('button', { name: /Review/i }));
     });
 
-    expect(onPrepare).toBeCalledTimes(1);
+    expect(onPrepare).toHaveBeenCalledTimes(1);
     expect(onPrepare.mock.calls[0][0]).toMatchObject({
       type: 'locations',
       locations: [
         {
-          target: 'url',
+          target: 'url-1',
           entities: [
             {
               kind: 'component',

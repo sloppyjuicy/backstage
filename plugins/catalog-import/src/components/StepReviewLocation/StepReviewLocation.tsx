@@ -15,15 +15,19 @@
  */
 
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import { FormHelperText, Grid, Typography } from '@material-ui/core';
+import FormHelperText from '@material-ui/core/FormHelperText';
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
 import LocationOnIcon from '@material-ui/icons/LocationOn';
 import React, { useCallback, useState } from 'react';
 import { BackButton, NextButton } from '../Buttons';
 import { EntityListComponent } from '../EntityListComponent';
 import { PrepareResult, ReviewResult } from '../useImportState';
 
-import { configApiRef, useApi } from '@backstage/core-plugin-api';
+import { configApiRef, useAnalytics, useApi } from '@backstage/core-plugin-api';
 import { Link } from '@backstage/core-components';
+import { stringifyEntityRef } from '@backstage/catalog-model';
+import { assertError } from '@backstage/errors';
 
 type Props = {
   prepareResult: PrepareResult;
@@ -38,34 +42,56 @@ export const StepReviewLocation = ({
 }: Props) => {
   const catalogApi = useApi(catalogApiRef);
   const configApi = useApi(configApiRef);
+  const analytics = useAnalytics();
 
-  const appTitle = configApi.getOptional('app.title') || 'Backstage';
+  const appTitle = configApi.getOptionalString('app.title') || 'Backstage';
 
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string>();
-
-  const handleImport = useCallback(async () => {
+  const exists =
+    prepareResult.type === 'locations' &&
+    prepareResult.locations.some(l => l.exists)
+      ? true
+      : false;
+  const handleClick = useCallback(async () => {
     setSubmitted(true);
+    analytics.captureEvent('click', 'import entity');
     try {
-      const result = await Promise.all(
-        prepareResult.locations.map(l =>
-          catalogApi.addLocation({
-            type: 'url',
-            target: l.target,
-            presence:
-              prepareResult.type === 'repository' ? 'optional' : 'required',
+      let refreshed = new Array<{ target: string }>();
+      if (prepareResult.type === 'locations') {
+        refreshed = await Promise.all(
+          prepareResult.locations
+            .filter(l => l.exists)
+            .map(async l => {
+              const ref = stringifyEntityRef(l.entities[0] ?? l);
+              await catalogApi.refreshEntity(ref);
+              return { target: l.target };
+            }),
+        );
+      }
+
+      const locations = await Promise.all(
+        prepareResult.locations
+          .filter((l: unknown) => !(l as { exists?: boolean }).exists)
+          .map(async l => {
+            const result = await catalogApi.addLocation({
+              type: 'url',
+              target: l.target,
+            });
+            return {
+              target: result.location.target,
+              entities: result.entities,
+            };
           }),
-        ),
       );
 
       onReview({
         ...prepareResult,
-        locations: result.map(r => ({
-          target: r.location.target,
-          entities: r.entities,
-        })),
+        ...{ refreshed },
+        locations,
       });
     } catch (e) {
+      assertError(e);
       // TODO: this error should be handled differently. We add it as 'optional' and
       //       it is not uncommon that a PR has not been merged yet.
       if (
@@ -86,7 +112,7 @@ export const StepReviewLocation = ({
         setSubmitted(false);
       }
     }
-  }, [prepareResult, onReview, catalogApi]);
+  }, [prepareResult, onReview, catalogApi, analytics]);
 
   return (
     <>
@@ -111,7 +137,9 @@ export const StepReviewLocation = ({
       )}
 
       <Typography>
-        The following entities will be added to the catalog:
+        {exists
+          ? 'The following locations already exist in the catalog:'
+          : 'The following entities will be added to the catalog:'}
       </Typography>
 
       <EntityListComponent
@@ -126,9 +154,9 @@ export const StepReviewLocation = ({
         <NextButton
           disabled={submitted}
           loading={submitted}
-          onClick={() => handleImport()}
+          onClick={() => handleClick()}
         >
-          Import
+          {exists ? 'Refresh' : 'Import'}
         </NextButton>
       </Grid>
     </>

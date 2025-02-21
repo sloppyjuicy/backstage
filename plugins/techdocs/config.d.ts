@@ -24,13 +24,40 @@ export interface Config {
      * Documentation building process depends on the builder attr
      * @visibility frontend
      */
-    builder: 'local' | 'external';
+    builder?: 'local' | 'external';
 
     /**
-     * @example http://localhost:7000/api/techdocs
+     * Allows fallback to case-sensitive triplets in case of migration issues.
      * @visibility frontend
-     * @deprecated
+     * @see https://backstage.io/docs/features/techdocs/how-to-guides#how-to-migrate-from-techdocs-alpha-to-beta
      */
-    requestUrl?: string;
+    legacyUseCaseSensitiveTripletPaths?: boolean;
+
+    sanitizer?: {
+      /**
+       * Allows iframe tag only for listed hosts
+       * Example:
+       *  allowedIframeHosts: ["example.com"]
+       *  this will allow all iframes with the host `example.com` in the src attribute
+       * @visibility frontend
+       */
+      allowedIframeHosts?: string[];
+      /**
+       * Allows listed custom element tag name regex
+       * Example:
+       *  allowedCustomElementTagNameRegExp: '^backstage-'
+       *  this will allow all custom elements with tag name matching `^backstage-` like <backstage-custom-element /> etc.
+       * @visibility frontend
+       */
+      allowedCustomElementTagNameRegExp?: string;
+      /**
+       * Allows listed custom element attribute name regex
+       * Example:
+       *  allowedCustomElementAttributeNameRegExp: 'attribute1|attribute2'
+       *  this will allow all custom element attributes matching `attribute1` or `attribute2` like <backstage-custom-element attribute1="yes" attribute2/>
+       * @visibility frontend
+       */
+      allowedCustomElementAttributeNameRegExp?: string;
+    };
   };
 }
