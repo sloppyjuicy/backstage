@@ -1,36 +1,37 @@
 ---
 id: index
-title: Intro to plugins
-description: Documentation on Introduction to Plugins
+title: Introduction to Plugins (Legacy)
+description: Legacy documentation for integrating various infrastructure and software development tools into Backstage through plugins using the old frontend system.
 ---
 
-Backstage is a single-page application composed of a set of plugins.
+:::caution[Legacy Documentation]
 
-Our goal for the plugin ecosystem is that the definition of a plugin is flexible
-enough to allow you to expose pretty much any kind of infrastructure or software
-development tool as a plugin in Backstage. By following strong
-[design guidelines](../dls/design.md) we ensure the overall user experience
-stays consistent between plugins.
+This section covers plugin development using the **old frontend system**. For new development, please refer to the [new frontend system](../frontend-system/index.md) and [new backend system](../backend-system/index.md) documentation. The content here is kept for reference and for maintaining existing plugins that have not yet been migrated.
 
-![plugin](../assets/my-plugin_screenshot.png)
+:::
 
-## Creating a plugin
+Backstage orchestrates a cohesive single-page application by seamlessly integrating various plugins.
 
-To create a plugin, follow the steps outlined [here](create-a-plugin.md).
+Our vision for the plugin ecosystem champions flexibility, empowering you to incorporate a broad spectrum of infrastructure and software development tools into Backstage as plugins. Adherence to stringent [design guidelines](../dls/design.md) guarantees a consistent and intuitive user experience across the entire plugin landscape.
 
-## Suggesting a plugin
+![Plugin Screenshot](../assets/plugins/my-plugin_screenshot.png)
 
-If you start developing a plugin that you aim to release as open source, we
-suggest that you create a
-[new Issue](https://github.com/backstage/backstage/issues/new?labels=plugin&template=plugin_template.md&title=%5BPlugin%5D+THE+PLUGIN+NAME).
-This helps the community know what plugins are in development.
+## Creating a Plugin
 
-You can also use this process if you have an idea for a good plugin but you hope
-that someone else will pick up the work.
+Embark on your plugin development journey by following the detailed steps provided in the [Create a Plugin](create-a-plugin.md) documentation.
 
-## Integrate into the Software Catalog
+## Suggesting a Plugin
 
-If your plugin isn't supposed to live as a standalone page, but rather needs to
-be presented as a part of a Software Catalog (e.g. a separate tab or a card on
-an "Overview" tab), then check out
-[the instruction](integrating-plugin-into-software-catalog.md) on how to do it.
+If you're developing an open-source plugin, we encourage you to create a [new issue in the community plugins repository](https://github.com/backstage/community-plugins/issues/new/choose). This informs the community about upcoming plugins and invites collaboration and feedback.
+
+This approach is equally beneficial if you conceive an idea for a potentially impactful plugin but prefer if another contributor undertakes its development.
+
+## Integration with the Software Catalog
+
+Should your plugin complement the Software Catalog rather than exist as a standalone feature (for instance, as an additional tab or a card within an "Overview" tab), you'll find comprehensive guidance on achieving this integration in the [Integrating Plugin into Software Catalog guide](integrating-plugin-into-software-catalog.md).
+
+## Existing Plugins
+
+There are a plethora of existing community made plugins which can be found by going to the [Backstage Plugin Directory](https://backstage.io/plugins)
+
+You can read more about it in this blog post: [The Plugin Directory is now open](https://backstage.io/blog/2020/09/30/plugin-marketplace/)

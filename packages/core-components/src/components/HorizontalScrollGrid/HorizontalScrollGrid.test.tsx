@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { fireEvent } from '@testing-library/react';
 import { renderInTestApp } from '@backstage/test-utils';
 import { HorizontalScrollGrid } from './HorizontalScrollGrid';
-import { Grid } from '@material-ui/core';
+import Grid from '@material-ui/core/Grid';
 
 describe('<HorizontalScrollGrid />', () => {
   beforeEach(() => {

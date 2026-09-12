@@ -15,27 +15,28 @@
  */
 
 import {
-  ContainerRunner,
-  UrlReader,
+  UrlReaderService,
   resolveSafeChildPath,
-} from '@backstage/backend-common';
-import { JsonObject, JsonValue } from '@backstage/config';
+} from '@backstage/backend-plugin-api';
+import { JsonObject, JsonValue } from '@backstage/types';
 import { InputError } from '@backstage/errors';
 import { ScmIntegrations } from '@backstage/integration';
 import commandExists from 'command-exists';
 import fs from 'fs-extra';
-import path, { resolve as resolvePath } from 'path';
-import { Writable } from 'stream';
+import path, { resolve as resolvePath } from 'node:path';
+import { PassThrough, Writable } from 'node:stream';
 import {
-  runCommand,
   createTemplateAction,
   fetchContents,
-} from '@backstage/plugin-scaffolder-backend';
+  executeShellCommand,
+} from '@backstage/plugin-scaffolder-node';
+import { examples } from './cookiecutter.examples';
+import { ContainerRunner } from './ContainerRunner';
 
 export class CookiecutterRunner {
-  private readonly containerRunner: ContainerRunner;
+  private readonly containerRunner?: ContainerRunner;
 
-  constructor({ containerRunner }: { containerRunner: ContainerRunner }) {
+  constructor({ containerRunner }: { containerRunner?: ContainerRunner }) {
     this.containerRunner = containerRunner;
   }
 
@@ -57,23 +58,29 @@ export class CookiecutterRunner {
     workspacePath,
     values,
     logStream,
+    imageName,
+    templateDir,
+    templateContentsDir,
   }: {
     workspacePath: string;
     values: JsonObject;
     logStream: Writable;
+    imageName?: string;
+    templateDir: string;
+    templateContentsDir: string;
   }): Promise<void> {
-    const templateDir = path.join(workspacePath, 'template');
     const intermediateDir = path.join(workspacePath, 'intermediate');
     await fs.ensureDir(intermediateDir);
     const resultDir = path.join(workspacePath, 'result');
 
     // First lets grab the default cookiecutter.json file
-    const cookieCutterJson = await this.fetchTemplateCookieCutter(templateDir);
+    const cookieCutterJson = await this.fetchTemplateCookieCutter(
+      templateContentsDir,
+    );
 
-    const { imageName, ...valuesForCookieCutterJson } = values;
     const cookieInfo = {
       ...cookieCutterJson,
-      ...valuesForCookieCutterJson,
+      ...values,
     };
 
     await fs.writeJSON(path.join(templateDir, 'cookiecutter.json'), cookieInfo);
@@ -89,14 +96,19 @@ export class CookiecutterRunner {
       () => false,
     );
     if (cookieCutterInstalled) {
-      await runCommand({
+      await executeShellCommand({
         command: 'cookiecutter',
         args: ['--no-input', '-o', intermediateDir, templateDir, '--verbose'],
         logStream,
       });
     } else {
+      if (this.containerRunner === undefined) {
+        throw new Error(
+          'Invalid state: containerRunner cannot be undefined when cookiecutter is not installed',
+        );
+      }
       await this.containerRunner.runContainer({
-        imageName: (imageName as string) ?? 'spotify/backstage-cookiecutter',
+        imageName: imageName ?? 'spotify/backstage-cookiecutter',
         command: 'cookiecutter',
         args: ['--no-input', '-o', '/output', '/input', '--verbose'],
         mountDirs,
@@ -121,71 +133,71 @@ export class CookiecutterRunner {
   }
 }
 
+/**
+ * Creates a `fetch:cookiecutter` Scaffolder action.
+ *
+ * @remarks
+ *
+ * See {@link https://cookiecutter.readthedocs.io/} and {@link https://backstage.io/docs/features/software-templates/writing-custom-actions}.
+ * @param options - Templating configuration.
+ * @public
+ */
 export function createFetchCookiecutterAction(options: {
-  reader: UrlReader;
+  reader: UrlReaderService;
   integrations: ScmIntegrations;
-  containerRunner: ContainerRunner;
+  containerRunner?: ContainerRunner;
 }) {
   const { reader, containerRunner, integrations } = options;
 
-  return createTemplateAction<{
-    url: string;
-    targetPath?: string;
-    values: JsonObject;
-    copyWithoutRender?: string[];
-    extensions?: string[];
-    imageName?: string;
-  }>({
+  return createTemplateAction({
     id: 'fetch:cookiecutter',
     description:
       'Downloads a template from the given URL into the workspace, and runs cookiecutter on it.',
+    examples,
     schema: {
       input: {
-        type: 'object',
-        required: ['url'],
-        properties: {
-          url: {
-            title: 'Fetch URL',
+        url: z =>
+          z.string({
             description:
               'Relative path or absolute URL pointing to the directory tree to fetch',
-            type: 'string',
-          },
-          targetPath: {
-            title: 'Target Path',
-            description:
-              'Target path within the working directory to download the contents to.',
-            type: 'string',
-          },
-          values: {
-            title: 'Template Values',
-            description: 'Values to pass on to cookiecutter for templating',
-            type: 'object',
-          },
-          copyWithoutRender: {
-            title: 'Copy Without Render',
-            description:
-              'Avoid rendering directories and files in the template',
-            type: 'array',
-            items: {
-              type: 'string',
-            },
-          },
-          extensions: {
-            title: 'Template Extensions',
-            description:
-              "Jinja2 extensions to add filters, tests, globals or extend the parser. Extensions must be installed in the container or on the host where Cookiecutter executes. See the contrib directory in Backstage's repo for more information",
-            type: 'array',
-            items: {
-              type: 'string',
-            },
-          },
-          imageName: {
-            title: 'Cookiecutter Docker image',
-            description:
-              "Specify a custom Docker image to run cookiecutter, to override the default: 'spotify/backstage-cookiecutter'. This can be used to execute cookiecutter with Template Extensions. Used only when a local cookiecutter is not found.",
-            type: 'string',
-          },
-        },
+          }),
+        targetPath: z =>
+          z
+            .string({
+              description:
+                'Target path within the working directory to download the contents to.',
+            })
+            .optional(),
+        values: z =>
+          z
+            .object(
+              {},
+              {
+                description: 'Values to pass on to cookiecutter for templating',
+              },
+            )
+            .passthrough(),
+        copyWithoutRender: z =>
+          z
+            .array(z.string(), {
+              description:
+                'Avoid rendering directories and files in the template',
+            })
+            .optional(),
+        extensions: z =>
+          z
+            .array(z.string(), {
+              description:
+                "Jinja2 extensions to add filters, tests, globals or extend the parser. Extensions must be installed in the container or on the host where Cookiecutter executes. See the contrib directory in Backstage's repo for more information",
+            })
+            .optional(),
+        imageName: z =>
+          z
+            .string({
+              description:
+                "Specify a custom Docker image to run cookiecutter, to override the default: 'spotify/backstage-cookiecutter'. This can be used to execute cookiecutter with Template Extensions. Used only when a local cookiecutter is not found.",
+            })
+            .optional(),
       },
     },
     async handler(ctx) {
@@ -213,7 +225,7 @@ export function createFetchCookiecutterAction(options: {
       await fetchContents({
         reader,
         integrations,
-        baseUrl: ctx.baseUrl,
+        baseUrl: ctx.templateInfo?.baseUrl,
         fetchUrl: ctx.input.url,
         outputPath: templateContentsDir,
       });
@@ -223,14 +235,21 @@ export function createFetchCookiecutterAction(options: {
         ...ctx.input.values,
         _copy_without_render: ctx.input.copyWithoutRender,
         _extensions: ctx.input.extensions,
-        imageName: ctx.input.imageName,
       };
+
+      const logStream = new PassThrough();
+      logStream.on('data', chunk => {
+        ctx.logger.info(chunk.toString());
+      });
 
       // Will execute the template in ./template and put the result in ./result
       await cookiecutter.run({
         workspacePath: workDir,
-        logStream: ctx.logStream,
-        values,
+        logStream,
+        values: values,
+        imageName: ctx.input.imageName,
+        templateDir: templateDir,
+        templateContentsDir: templateContentsDir,
       });
 
       // Finally move the template result into the task workspace

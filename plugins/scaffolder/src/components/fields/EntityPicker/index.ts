@@ -14,3 +14,4 @@
  * limitations under the License.
  */
 export { EntityPicker } from './EntityPicker';
+export { EntityPickerFieldSchema, type EntityPickerUiOptions } from './schema';

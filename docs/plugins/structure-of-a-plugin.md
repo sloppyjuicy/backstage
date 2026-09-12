@@ -4,6 +4,12 @@ title: Structure of a Plugin
 description: Details about structure of a plugin
 ---
 
+:::caution[Legacy Documentation]
+
+This page describes the structure of a plugin for the **old frontend system**. For the new frontend system, see [Building Frontend Plugins](../frontend-system/building-plugins/01-index.md). The general folder structure is similar, but the plugin wiring in `plugin.ts` differs significantly.
+
+:::
+
 Nice, you have a new plugin! We'll soon see how we can develop it into doing
 great things. But first off, let's look at what we get out of the box.
 
@@ -11,9 +17,10 @@ great things. But first off, let's look at what we get out of the box.
 
 The new plugin should look something like:
 
-```
+```text
 new-plugin/
-    dist/
+    dev/
+        index.ts
     node_modules/
     src/
         components/
@@ -29,11 +36,10 @@ new-plugin/
         plugin.test.ts
         plugin.ts
         routes.ts
-    jest.config.js
-    jest.setup.ts
+        setupTests.ts
+    .eslintrc.js
     package.json
     README.md
-    tsconfig.json
 ```
 
 You might note a thing or two. Yes, a plugin looks like a mini project on it's
@@ -48,8 +54,7 @@ folder.
 
 ## Base files
 
-In the root folder you have some configuration for typescript and jest, the test
-runner. You get a readme to populate with info about your plugin and a
+You get a readme to populate with info about your plugin and a
 package.json to declare the plugin dependencies, metadata and scripts.
 
 ## The plugin file
@@ -73,6 +78,7 @@ export const examplePlugin = createPlugin({
 
 export const ExamplePage = examplePlugin.provide(
   createRoutableExtension({
+    name: 'ExamplePage',
     component: () =>
       import('./components/ExampleComponent').then(m => m.ExampleComponent),
     mountPoint: rootRouteRef,
@@ -81,9 +87,9 @@ export const ExamplePage = examplePlugin.provide(
 ```
 
 This is where the plugin is created and where it creates and exports extensions
-that can be imported and used the app. See reference docs for
-[createPlugin](../reference/createPlugin.md) or introduction to the new
-[Composability System](./composability.md).
+that can be imported and used in the app. See reference docs for
+[`createPlugin`](https://backstage.io/api/stable/functions/_backstage_core-plugin-api.index.createPlugin.html) or introduction to
+the new [Composability System](./composability.md).
 
 ## Components
 
@@ -91,9 +97,9 @@ The generated plugin includes two example components to showcase how we
 structure our plugins. There are usually one or multiple page components and
 next to them you can split up the UI in as many components as you feel like.
 
-We have the `ExamplePage` to show an example Backstage page component. The
+We have the `ExampleComponent` to show an example Backstage page component. The
 `ExampleFetchComponent` showcases the common task of making an async request to
-a public API and plot the response data in a table using Material-UI components.
+a public API and plot the response data in a table using Material UI components.
 
 You may tweak these components, rename them and/or replace them completely.
 
@@ -116,5 +122,3 @@ backend-side authorization. To smooth this process out you can use proxy -
 either the one you already have (like Nginx, HAProxy, etc.) or the proxy-backend
 plugin that we provide for the Backstage backend.
 [Read more](https://github.com/backstage/backstage/blob/master/plugins/proxy-backend/README.md)
-
-[Back to Getting Started](../README.md)

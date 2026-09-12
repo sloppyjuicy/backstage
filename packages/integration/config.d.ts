@@ -15,7 +15,10 @@
  */
 
 export interface Config {
-  /** Configuration for integrations towards various external repository provider systems */
+  /**
+   * Configuration for integrations towards various external repository provider systems
+   * @visibility frontend
+   */
   integrations?: {
     /** Integration configuration for Azure */
     azure?: Array<{
@@ -24,17 +27,128 @@ export interface Config {
        * @visibility frontend
        */
       host: string;
+
+      /**
+       * The credentials to use for requests. If multiple credentials are specified the first one that matches the organization is used.
+       * If no organization matches the first credential without an organization is used.
+       *
+       * If no credentials are specified at all, either a default credential (for Azure DevOps) or anonymous access (for Azure DevOps Server) is used.
+       */
+      credentials?: {
+        organizations?: string[];
+        clientId?: string;
+        /** @visibility secret */
+        clientSecret?: string;
+        tenantId?: string;
+        /** @visibility secret */
+        personalAccessToken?: string;
+        managedIdentityClientId?: string;
+      }[];
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
+    }>;
+
+    /** Integration configuration for Azure Blob Storage */
+    azureBlobStorage?: Array<{
+      /**
+       * The name of the Azure Storage Account, e.g., "mystorageaccount".
+       */
+      accountName?: string;
+
+      /**
+       * The primary or secondary key for the Azure Storage Account.
+       * Only required if connectionString or SAS token are not specified.
+       * @visibility secret
+       */
+      accountKey?: string;
+
+      /**
+       * A Shared Access Signature (SAS) token for limited access to resources.
+       * @visibility secret
+       */
+      sasToken?: string;
+
+      /**
+       * A full connection string for the Azure Storage Account.
+       * This includes the account name, key, and endpoint details.
+       * @visibility secret
+       */
+      connectionString?: string;
+
+      /**
+       * Optional endpoint suffix for custom domains or sovereign clouds.
+       * e.g., "core.windows.net" for public Azure or "core.usgovcloudapi.net" for US Government cloud.
+       */
+      endpointSuffix?: string;
+
+      /**
+       * Optional endpoint URL for custom domain. Uses default if not provided.
+       * @visibility frontend
+       */
+      endpoint?: string;
+      /**
+       * Optional credential to use for Azure Active Directory authentication.
+       */
+      aadCredential?: {
+        /**
+         * The client ID of the Azure AD application.
+         */
+        clientId: string;
+
+        /**
+         * The tenant ID for Azure AD.
+         */
+        tenantId: string;
+
+        /**
+         * The client secret for the Azure AD application.
+         * @visibility secret
+         */
+        clientSecret: string;
+      };
+    }>;
+
+    /** Integration configuration for Bitbucket Cloud */
+    bitbucketCloud?: Array<{
+      /**
+       * The username to use for authenticated requests.
+       */
+      username?: string;
       /**
        * Token used to authenticate requests.
        * @visibility secret
        */
       token?: string;
+      /**
+       * Bitbucket Cloud app password used to authenticate requests.
+       * @visibility secret
+       * @deprecated Use `token` instead.
+       */
+      appPassword?: string;
+      /**
+       * OAuth client ID for Bitbucket Cloud.
+       * @visibility secret
+       */
+      clientId?: string;
+      /**
+       * OAuth client secret for Bitbucket Cloud.
+       * @visibility secret
+       */
+      clientSecret?: string;
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
     }>;
 
-    /** Integration configuration for Bitbucket */
-    bitbucket?: Array<{
+    /** Integration configuration for Bitbucket Server */
+    bitbucketServer?: Array<{
       /**
-       * The hostname of the given Bitbucket instance
+       * The hostname of the given Bitbucket Server instance
        * @visibility frontend
        */
       host: string;
@@ -44,20 +158,70 @@ export interface Config {
        */
       token?: string;
       /**
-       * The base url for the Bitbucket API, for example https://api.bitbucket.org/2.0
+       * Username used to authenticate requests with Basic Auth.
+       * @visibility secret
+       */
+      username?: string;
+      /**
+       * Password (or token as password) used to authenticate requests with Basic Auth.
+       * @visibility secret
+       */
+      password?: string;
+      /**
+       * The base url for the Bitbucket Server API, for example https://<host>/rest/api/1.0
        * @visibility frontend
        */
       apiBaseUrl?: string;
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
+    }>;
+
+    /** Integration configuration for Gerrit */
+    gerrit?: Array<{
+      /**
+       * The hostname of the given Gerrit instance
+       * @visibility frontend
+       */
+      host: string;
+      /**
+       * The base url for the Gerrit instance.
+       * @visibility frontend
+       */
+      baseUrl?: string;
+      /**
+       * The gitiles base url.
+       * @visibility frontend
+       */
+      gitilesBaseUrl: string;
+      /**
+       * The base url for cloning repos.
+       * @visibility frontend
+       */
+      cloneUrl?: string;
+      /**
+       * Disable the edit url feature.
+       * @visibility frontend
+       */
+      disableEditUrl?: boolean;
       /**
        * The username to use for authenticated requests.
        * @visibility secret
        */
       username?: string;
       /**
-       * Bitbucket app password used to authenticate requests.
+       * Gerrit password used to authenticate requests. This can be either a password
+       * or a generated access token.
        * @visibility secret
        */
-      appPassword?: string;
+      password?: string;
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
     }>;
 
     /** Integration configuration for GitHub */
@@ -85,7 +249,6 @@ export interface Config {
 
       /**
        * GitHub Apps configuration
-       * @visibility backend
        */
       apps?: Array<{
         /**
@@ -101,7 +264,7 @@ export interface Config {
          * The secret used for webhooks
          * @visibility secret
          */
-        webhookSecret: string;
+        webhookSecret?: string;
         /**
          * The client ID to use
          */
@@ -111,6 +274,18 @@ export interface Config {
          * @visibility secret
          */
         clientSecret: string;
+        /**
+         * List of installation owners allowed to be used by this GitHub app. The GitHub UI does not provide a way to list the installations.
+         * However you can list the installations with the GitHub API. You can find the list of installations here:
+         * https://api.github.com/app/installations
+         * The relevant documentation for this is here.
+         * https://docs.github.com/en/rest/reference/apps#list-installations-for-the-authenticated-app--code-samples
+         */
+        allowedInstallationOwners?: string[];
+        /**
+         * If true, then an installation token will be issued for access when no other token is available.
+         */
+        publicAccess?: boolean;
       }>;
     }>;
 
@@ -148,13 +323,39 @@ export interface Config {
        * @visibility frontend
        */
       baseUrl?: string;
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
+
+      /**
+       * Retry configuration for requests.
+       * @visibility frontend
+       */
+      retry?: {
+        /**
+         * Maximum number of retries for failed requests.
+         * @visibility frontend
+         */
+        maxRetries?: number;
+        /**
+         * HTTP status codes that should trigger a retry.
+         * @visibility frontend
+         */
+        retryStatusCodes?: number[];
+        /**
+         * Maximum number of API requests allowed per minute. Set to -1 to disable rate limiting.
+         * @visibility frontend
+         */
+        maxApiRequestsPerMinute?: number;
+      };
     }>;
 
     /** Integration configuration for Google Cloud Storage */
     googleGcs?: {
       /**
        * Service account email used to authenticate requests.
-       * @visibility backend
        */
       clientEmail?: string;
       /**
@@ -163,5 +364,95 @@ export interface Config {
        */
       privateKey?: string;
     };
+
+    /** Integration configuration for AWS S3 Service */
+    awsS3?: Array<{
+      /**
+       * AWS Endpoint.
+       * The endpoint URI to send requests to. The default endpoint is built from the configured region.
+       * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/S3.html#constructor-property
+       *
+       * Supports non-AWS providers, e.g. for LocalStack, endpoint may look like http://localhost:4566
+       * @visibility frontend
+       */
+      endpoint?: string;
+
+      /**
+       * Whether to use path style URLs when communicating with S3.
+       * Defaults to false.
+       * This allows providers like LocalStack, Minio and Wasabi (and possibly others) to be used.
+       * @visibility frontend
+       */
+      s3ForcePathStyle?: boolean;
+
+      /**
+       * Account access key used to authenticate requests.
+       */
+      accessKeyId?: string;
+      /**
+       * Account secret key used to authenticate requests.
+       * @visibility secret
+       */
+      secretAccessKey?: string;
+
+      /**
+       * ARN of the role to be assumed
+       */
+      roleArn?: string;
+
+      /**
+       * External ID to use when assuming role
+       */
+      externalId?: string;
+    }>;
+
+    /** Integration configuration for Gitea */
+    gitea?: Array<{
+      /**
+       * The hostname of the given Gitea instance
+       * @visibility frontend
+       */
+      host: string;
+      /**
+       * The base url for the Gitea instance.
+       * @visibility frontend
+       */
+      baseUrl?: string;
+
+      /**
+       * The username to use for authenticated requests.
+       * @visibility secret
+       */
+      username?: string;
+      /**
+       * Gitea password used to authenticate requests. This can be either a password
+       * or a generated access token.
+       * @visibility secret
+       */
+      password?: string;
+      /**
+       * PGP signing key for signing commits.
+       * @visibility secret
+       */
+      commitSigningKey?: string;
+    }>;
+    /** Integration configuration for Harness Code */
+    harness?: Array<{
+      /**
+       * The hostname of the given Harness Code instance
+       * @visibility frontend
+       */
+      host: string;
+      /**
+       * The apikey to use for authenticated requests.
+       * @visibility secret
+       */
+      apiKey?: string;
+      /**
+       * Harness Code token used to authenticate requests. This can be either a generated access token.
+       * @visibility secret
+       */
+      token?: string;
+    }>;
   };
 }

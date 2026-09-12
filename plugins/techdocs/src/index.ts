@@ -14,28 +14,58 @@
  * limitations under the License.
  */
 
+/**
+ * The Backstage plugin that renders technical documentation for your components
+ *
+ * @packageDocumentation
+ */
+
+import {
+  TechDocsEntityMetadata,
+  TechDocsMetadata,
+} from '@backstage/plugin-techdocs-react';
+
+export * from './types';
 export * from './api';
-export { techdocsApiRef, techdocsStorageApiRef } from './api';
-export type { TechDocsApi, TechDocsStorageApi } from './api';
-export { TechDocsClient, TechDocsStorageClient } from './client';
-export type { DocsTableRow, PanelType } from './home/components';
+export * from './client';
+export * from './reader';
+export * from './search';
+export * from './home';
 export {
-  EntityListDocsTable,
-  DefaultTechDocsHome,
-  TechDocsPageWrapper,
-  TechDocsPicker,
-} from './home/components';
-export * from './components/DocsResultListItem';
-export {
-  DocsCardGrid,
-  DocsTable,
   EntityTechdocsContent,
   TechDocsCustomHome,
   TechDocsIndexPage,
   TechdocsPage,
+  TechDocsReaderPage,
+  TechDocsSearchResultListItem,
   techdocsPlugin as plugin,
   techdocsPlugin,
-  TechDocsReaderPage,
 } from './plugin';
-export * from './reader';
-export { EmbeddedDocsRouter, Router } from './Router';
+export {
+  isTechDocsAvailable,
+  LegacyEmbeddedDocsRouter as EmbeddedDocsRouter,
+  Router,
+} from './Router';
+
+export type { TechDocsSearchResultListItemProps } from './search/components/TechDocsSearchResultListItem';
+
+/**
+ * @deprecated Import from `@backstage/plugin-techdocs-react` instead
+ *
+ * @public
+ */
+type DeprecatedTechDocsMetadata = TechDocsMetadata;
+
+/**
+ * @deprecated Import from `@backstage/plugin-techdocs-react` instead
+ *
+ * @public
+ */
+type DeprecatedTechDocsEntityMetadata = TechDocsEntityMetadata;
+
+export type {
+  DeprecatedTechDocsEntityMetadata as TechDocsEntityMetadata,
+  DeprecatedTechDocsMetadata as TechDocsMetadata,
+};
+
+export * from './overridableComponents';

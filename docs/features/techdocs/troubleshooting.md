@@ -5,27 +5,40 @@ sidebar_label: Troubleshooting
 description: Troubleshooting for TechDocs
 ---
 
-## Failure to clone
+## Documentation not found when generating
 
-TechDocs will fail to clone your docs if you have a git config which overrides
-the `https` protocol with `ssh` or something else. Make sure to remove your git
-config locally when you try TechDocs.
+This may happen if you have TechDocs set up using the "out-of-the-box"
+configuration, wherein documentation is built dynamically by the TechDocs
+backend, and your TechDocs files are being pulled from a git-based source
+control management system (e.g. GitHub, BitBucket, etc).
+
+If you experience this, check that TechDocs-related files (e.g. markdown,
+assets, or the `mkdocs.yml` file) are not matched by an `export-ignore`
+attribute in a `.gitattributes` file in the relevant repository.
+
+TechDocs' backend is not able to see such files, and therefore may generate
+partial (or no) TechDocs as a result.
+
+You'll need to reconsider how you distribute tar archives based on your source
+code (and how you prevent internal documentation from being included in those
+archives). Alternatively, you could consider switching to the "recommended"
+TechDocs architecture (documentation generated and published in CI/CD).
 
 ## MkDocs Build Errors
 
-Using the [TechDocs CLI](https://github.com/backstage/techdocs-cli), you can
+Using the [TechDocs CLI](https://backstage.io/docs/features/techdocs/cli), you can
 troubleshoot MkDocs build issues locally. Note this requires you have Docker
 available to launch images. First, `git clone` the target repository locally,
 then in the root of the repository, run:
 
-```
+```shell
 npx @techdocs/cli serve
 ```
 
 For example, if you have forgotten to put an MkDocs configuration file in your
 repo, the resulting error will be:
 
-```
+```log
 npx: installed 278 in 9.089s
 [techdocs-preview-bundle] Running local version of Backstage at http://localhost:3000
 INFO    -  Building documentation...
@@ -36,7 +49,7 @@ Config file '/content/mkdocs.yml' does not exist.
 When it works, a local copy of both Backstage and your site will be launched
 locally:
 
-```
+```log
 npx: installed 278 in 9.682s
 [techdocs-preview-bundle] Running local version of Backstage at http://localhost:3000
 INFO    -  Building documentation...

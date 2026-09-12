@@ -14,27 +14,54 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useState } from 'react';
-import { List } from '@material-ui/core';
+import { useRef, useCallback, useState } from 'react';
+import List from '@material-ui/core/List';
+import TextField from '@material-ui/core/TextField';
+import IconButton from '@material-ui/core/IconButton';
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
 import { EmptyFlags } from './EmptyFlags';
 import { FlagItem } from './FeatureFlagsItem';
-
 import {
+  FeatureFlag,
+  FeatureFlagsApi,
   featureFlagsApiRef,
   FeatureFlagState,
   useApi,
 } from '@backstage/core-plugin-api';
 import { InfoCard } from '@backstage/core-components';
+import ClearIcon from '@material-ui/icons/Clear';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import { userSettingsTranslationRef } from '../../translation';
 
+export const sortFlags = (
+  flags: FeatureFlag[],
+  featureFlagsApi: FeatureFlagsApi,
+): FeatureFlag[] => {
+  const activeFlags = flags.filter(flag => featureFlagsApi.isActive(flag.name));
+  const idleFlags = flags.filter(flag => !featureFlagsApi.isActive(flag.name));
+  return [...activeFlags, ...idleFlags];
+};
+
+/** @public */
 export const UserSettingsFeatureFlags = () => {
   const featureFlagsApi = useApi(featureFlagsApiRef);
-  const featureFlags = featureFlagsApi.getRegisteredFlags();
+  const inputRef = useRef<HTMLElement>();
+
+  const initialFeatureFlags = featureFlagsApi.getRegisteredFlags();
+  const initialFeatureFlagsSorted = sortFlags(
+    initialFeatureFlags,
+    featureFlagsApi,
+  );
+  const [featureFlags] = useState(initialFeatureFlagsSorted);
 
   const initialFlagState = Object.fromEntries(
     featureFlags.map(({ name }) => [name, featureFlagsApi.isActive(name)]),
   );
 
   const [state, setState] = useState<Record<string, boolean>>(initialFlagState);
+  const [filterInput, setFilterInput] = useState<string>('');
+  const { t } = useTranslationRef(userSettingsTranslationRef);
 
   const toggleFlag = useCallback(
     (flagName: string) => {
@@ -59,10 +86,55 @@ export const UserSettingsFeatureFlags = () => {
     return <EmptyFlags />;
   }
 
+  const clearFilterInput = () => {
+    setFilterInput('');
+    inputRef?.current?.focus();
+  };
+
+  const filteredFeatureFlags = featureFlags.filter(featureFlag => {
+    const featureFlagName = featureFlag.name.toLowerCase();
+    return featureFlagName.includes(filterInput.toLowerCase());
+  });
+
+  const Header = () => (
+    <Grid container style={{ justifyContent: 'space-between' }}>
+      <Grid item xs={6} md={8}>
+        <Typography variant="h5">{t('featureFlags.title')}</Typography>
+        <Typography variant="subtitle1">
+          {t('featureFlags.description')}
+        </Typography>
+      </Grid>
+      {featureFlags.length >= 10 && (
+        <Grid item xs={6} md={4}>
+          <TextField
+            label={t('featureFlags.filterTitle')}
+            style={{ display: 'flex', justifyContent: 'flex-end' }}
+            inputRef={ref => ref && ref.focus()}
+            InputProps={{
+              ...(filterInput.length && {
+                endAdornment: (
+                  <IconButton
+                    aria-label={t('featureFlags.clearFilter')}
+                    onClick={clearFilterInput}
+                    edge="end"
+                  >
+                    <ClearIcon />
+                  </IconButton>
+                ),
+              }),
+            }}
+            onChange={e => setFilterInput(e.target.value)}
+            value={filterInput}
+          />
+        </Grid>
+      )}
+    </Grid>
+  );
+
   return (
-    <InfoCard title="Feature Flags">
+    <InfoCard title={<Header />}>
       <List dense>
-        {featureFlags.map(featureFlag => {
+        {filteredFeatureFlags.map(featureFlag => {
           const enabled = Boolean(state[featureFlag.name]);
 
           return (

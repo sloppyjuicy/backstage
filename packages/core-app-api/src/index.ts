@@ -14,6 +14,19 @@
  * limitations under the License.
  */
 
+/**
+ * Core app API used by Backstage apps
+ *
+ * @packageDocumentation
+ */
+
 export * from './apis';
 export * from './app';
 export * from './routing';
+export type {
+  AuthConnector,
+  AuthConnectorCreateSessionOptions,
+  AuthConnectorRefreshSessionOptions,
+  OpenLoginPopupOptions,
+} from './lib';
+export { openLoginPopup } from './lib';

@@ -14,3 +14,4 @@
  * limitations under the License.
  */
 export { OwnerPicker } from './OwnerPicker';
+export { OwnerPickerFieldSchema, type OwnerPickerUiOptions } from './schema';

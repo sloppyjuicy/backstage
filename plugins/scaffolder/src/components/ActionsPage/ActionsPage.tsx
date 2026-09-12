@@ -13,181 +13,287 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React from 'react';
-import { useAsync } from 'react-use';
-import { scaffolderApiRef } from '../../api';
-import {
-  Typography,
-  Paper,
-  Table,
-  TableBody,
-  Box,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  makeStyles,
-} from '@material-ui/core';
-import { JSONSchema } from '@backstage/catalog-model';
-import { JSONSchema7Definition } from 'json-schema';
-import classNames from 'classnames';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import useAsync from 'react-use/esm/useAsync';
+import { Action, scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
 
-import { useApi } from '@backstage/core-plugin-api';
+import { useApi, useRouteRef } from '@backstage/core-plugin-api';
 import {
-  Progress,
   Content,
+  EmptyState,
+  ErrorPanel,
   Header,
+  MarkdownContent,
   Page,
-  ErrorPage,
 } from '@backstage/core-components';
+import { Flex, List, ListRow, SearchField, Text } from '@backstage/ui';
+import { ScaffolderPageContextMenu } from '@backstage/plugin-scaffolder-react/alpha';
+import { useNavigate } from 'react-router-dom';
+import {
+  editRouteRef,
+  rootRouteRef,
+  scaffolderListTaskRouteRef,
+  templatingExtensionsRouteRef,
+} from '../../routes';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { scaffolderTranslationRef } from '../../translation';
+import { Expanded, RenderSchema, SchemaRenderContext } from '../RenderSchema';
+import { ScaffolderUsageExamplesTable } from '../ScaffolderUsageExamplesTable';
 
-const useStyles = makeStyles(theme => ({
-  code: {
-    fontFamily: 'Menlo, monospace',
-    padding: theme.spacing(1),
-    backgroundColor:
-      theme.palette.type === 'dark'
-        ? theme.palette.grey[700]
-        : theme.palette.grey[300],
-    display: 'inline-block',
-    borderRadius: 5,
-    border: `1px solid ${theme.palette.grey[500]}`,
-    position: 'relative',
-  },
+function ActionDetail({ action }: { action: Action }) {
+  const { t } = useTranslationRef(scaffolderTranslationRef);
+  const expanded = useState<Expanded>({});
 
-  codeRequired: {
-    '&::after': {
-      position: 'absolute',
-      content: '"*"',
-      top: 0,
-      right: theme.spacing(0.5),
-      fontWeight: 'bolder',
-      color: theme.palette.error.light,
-    },
-  },
-}));
+  const partialSchemaRenderContext: Omit<SchemaRenderContext, 'parentId'> = {
+    expanded,
+  };
 
-export const ActionsPage = () => {
-  const api = useApi(scaffolderApiRef);
-  const classes = useStyles();
-  const { loading, value, error } = useAsync(async () => {
-    return api.listActions();
-  });
+  const hasInput = !!action.schema?.input;
+  const hasOutput = !!action.schema?.output;
+  const hasExamples = !!action.examples;
 
-  if (loading) {
-    return <Progress />;
+  if (!hasInput && !hasOutput && !hasExamples) {
+    return null;
   }
+
+  return (
+    <Flex direction="column" gap="6">
+      {hasInput && (
+        <Flex direction="column" gap="2">
+          <Text as="h3" variant="title-small" weight="bold">
+            {t('actionsPage.action.input')}
+          </Text>
+          <RenderSchema
+            strategy="properties"
+            context={{
+              parentId: `${action.id}.input`,
+              ...partialSchemaRenderContext,
+            }}
+            schema={action?.schema?.input}
+          />
+        </Flex>
+      )}
+      {hasOutput && (
+        <Flex direction="column" gap="2">
+          <Text as="h3" variant="title-small" weight="bold">
+            {t('actionsPage.action.output')}
+          </Text>
+          <RenderSchema
+            strategy="properties"
+            context={{
+              parentId: `${action.id}.output`,
+              ...partialSchemaRenderContext,
+            }}
+            schema={action?.schema?.output}
+          />
+        </Flex>
+      )}
+      {hasExamples && (
+        <Flex direction="column" gap="2">
+          <Text as="h3" variant="title-small" weight="bold">
+            {t('actionsPage.action.examples')}
+          </Text>
+          <ScaffolderUsageExamplesTable examples={action.examples!} />
+        </Flex>
+      )}
+    </Flex>
+  );
+}
+
+export const ActionPageContent = () => {
+  const api = useApi(scaffolderApiRef);
+  const { t } = useTranslationRef(scaffolderTranslationRef);
+
+  const {
+    loading,
+    value: actions,
+    error,
+  } = useAsync(async () => {
+    return api.listActions();
+  }, [api]);
+
+  const [selectedActionId, setSelectedActionId] = useState<
+    string | undefined
+  >();
+  const [searchQuery, setSearchQuery] = useState('');
+  const initialHashHandled = useRef(false);
+
+  useEffect(() => {
+    if (initialHashHandled.current || !actions) {
+      return;
+    }
+    const hash = window.location.hash.slice(1);
+    if (hash && actions.some(a => a.id === hash)) {
+      initialHashHandled.current = true;
+      setSelectedActionId(hash);
+      requestAnimationFrame(() => {
+        const row = document.querySelector(`[data-key="${CSS.escape(hash)}"]`);
+        if (row && typeof row.scrollIntoView === 'function') {
+          row.scrollIntoView({ block: 'nearest' });
+        }
+      });
+    }
+  }, [actions]);
+
+  const filteredActions = useMemo(() => {
+    const nonLegacy =
+      actions?.filter(action => !action.id.startsWith('legacy:')) ?? [];
+    if (!searchQuery) {
+      return nonLegacy;
+    }
+    const lowerQuery = searchQuery.toLowerCase();
+    return nonLegacy.filter(
+      action =>
+        action.id.toLowerCase().includes(lowerQuery) ||
+        action.description?.toLowerCase().includes(lowerQuery),
+    );
+  }, [actions, searchQuery]);
+
+  const selectedAction = useMemo(
+    () => filteredActions.find(a => a.id === selectedActionId),
+    [filteredActions, selectedActionId],
+  );
 
   if (error) {
     return (
-      <ErrorPage
-        statusMessage="Failed to load installed actions"
-        status="500"
-      />
+      <>
+        <ErrorPanel error={error} />
+        <EmptyState
+          missing="info"
+          title={t('actionsPage.content.emptyState.title')}
+          description={t('actionsPage.content.emptyState.description')}
+        />
+      </>
     );
   }
 
-  const formatRows = (input: JSONSchema) => {
-    const properties = input.properties;
-    if (!properties) {
-      return undefined;
-    }
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: selectedAction ? '320px 1fr' : '1fr',
+        gridTemplateRows: 'auto 1fr',
+        gap: 24,
+      }}
+    >
+      <SearchField
+        aria-label={t('actionsPage.content.searchFieldPlaceholder')}
+        placeholder={t('actionsPage.content.searchFieldPlaceholder')}
+        value={searchQuery}
+        onChange={setSearchQuery}
+      />
+      {!loading && !filteredActions.length ? (
+        <EmptyState
+          missing="info"
+          title={t('actionsPage.content.emptyState.title')}
+          description={t('actionsPage.content.emptyState.description')}
+        />
+      ) : (
+        <List
+          aria-label={t('actionsPage.title')}
+          selectionMode="single"
+          selectionBehavior="toggle"
+          selectedKeys={selectedActionId ? [selectedActionId] : []}
+          style={{ minWidth: 0, overflow: 'hidden' }}
+          onSelectionChange={selection => {
+            if (selection === 'all') {
+              return;
+            }
+            const selected = [...selection][0] as string | undefined;
+            setSelectedActionId(prev => {
+              const next = prev === selected ? undefined : selected;
+              const hash = next ? `#${next}` : '';
+              window.history.replaceState(
+                null,
+                '',
+                `${window.location.pathname}${window.location.search}${hash}`,
+              );
+              return next;
+            });
+          }}
+        >
+          {filteredActions.map(action => (
+            <ListRow
+              key={action.id}
+              id={action.id}
+              textValue={action.id}
+              description={action.description ?? undefined}
+            >
+              {action.id}
+            </ListRow>
+          ))}
+        </List>
+      )}
+      {selectedAction && (
+        <Flex
+          direction="column"
+          gap="3"
+          style={{ gridColumn: 2, gridRow: '1 / -1', minWidth: 0 }}
+        >
+          <Flex direction="column" gap="1">
+            <Text as="h2" variant="title-medium" weight="bold">
+              {selectedAction.id}
+            </Text>
+            {selectedAction.description && (
+              <MarkdownContent content={selectedAction.description} />
+            )}
+          </Flex>
+          <ActionDetail action={selectedAction} />
+        </Flex>
+      )}
+    </div>
+  );
+};
 
-    return Object.entries(properties).map(entry => {
-      const [key] = entry;
-      const props = entry[1] as unknown as JSONSchema;
-      const codeClassname = classNames(classes.code, {
-        [classes.codeRequired]: input.required?.includes(key),
-      });
-
-      return (
-        <TableRow key={key}>
-          <TableCell>
-            <div className={codeClassname}>{key}</div>
-          </TableCell>
-          <TableCell>{props.title}</TableCell>
-          <TableCell>{props.description}</TableCell>
-          <TableCell>
-            <span className={classes.code}>{props.type}</span>
-          </TableCell>
-        </TableRow>
-      );
-    });
+export type ActionsPageProps = {
+  contextMenu?: {
+    editor?: boolean;
+    tasks?: boolean;
+    create?: boolean;
+    templatingExtensions?: boolean;
   };
+};
 
-  const renderTable = (input: JSONSchema) => {
-    if (!input.properties) {
-      return undefined;
-    }
-    return (
-      <TableContainer component={Paper}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Title</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell>Type</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>{formatRows(input)}</TableBody>
-        </Table>
-      </TableContainer>
-    );
+export const ActionsPage = (props: ActionsPageProps) => {
+  const navigate = useNavigate();
+  const editorLink = useRouteRef(editRouteRef);
+  const tasksLink = useRouteRef(scaffolderListTaskRouteRef);
+  const createLink = useRouteRef(rootRouteRef);
+  const templatingExtensionsLink = useRouteRef(templatingExtensionsRouteRef);
+  const { t } = useTranslationRef(scaffolderTranslationRef);
+
+  const scaffolderPageContextMenuProps = {
+    onEditorClicked:
+      props?.contextMenu?.editor !== false
+        ? () => navigate(editorLink())
+        : undefined,
+    onActionsClicked: undefined,
+    onTasksClicked:
+      props?.contextMenu?.tasks !== false
+        ? () => navigate(tasksLink())
+        : undefined,
+    onCreateClicked:
+      props?.contextMenu?.create !== false
+        ? () => navigate(createLink())
+        : undefined,
+    onTemplatingExtensionsClicked:
+      props?.contextMenu?.templatingExtensions !== false
+        ? () => navigate(templatingExtensionsLink())
+        : undefined,
   };
-
-  const renderTables = (name: string, input?: JSONSchema7Definition[]) => {
-    if (!input) {
-      return undefined;
-    }
-
-    return (
-      <>
-        <Typography variant="h6">{name}</Typography>
-        {input.map((i, index) => (
-          <div key={index}>{renderTable(i as unknown as JSONSchema)}</div>
-        ))}
-      </>
-    );
-  };
-
-  const items = value?.map(action => {
-    if (action.id.startsWith('legacy:')) {
-      return undefined;
-    }
-
-    const oneOf = renderTables('oneOf', action.schema?.input?.oneOf);
-    return (
-      <Box pb={4} key={action.id}>
-        <Typography variant="h4" className={classes.code}>
-          {action.id}
-        </Typography>
-        <Typography>{action.description}</Typography>
-        {action.schema?.input && (
-          <Box pb={2}>
-            <Typography variant="h5">Input</Typography>
-            {renderTable(action.schema.input)}
-            {oneOf}
-          </Box>
-        )}
-        {action.schema?.output && (
-          <Box pb={2}>
-            <Typography variant="h5">Output</Typography>
-            {renderTable(action.schema.output)}
-          </Box>
-        )}
-      </Box>
-    );
-  });
 
   return (
     <Page themeId="home">
       <Header
-        pageTitleOverride="Create a New Component"
-        title="Installed actions"
-        subtitle="This is the collection of all installed actions"
-      />
-      <Content>{items}</Content>
+        pageTitleOverride={t('actionsPage.pageTitle')}
+        title={t('actionsPage.title')}
+        subtitle={t('actionsPage.subtitle')}
+      >
+        <ScaffolderPageContextMenu {...scaffolderPageContextMenuProps} />
+      </Header>
+      <Content>
+        <ActionPageContent />
+      </Content>
     </Page>
   );
 };

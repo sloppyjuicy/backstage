@@ -4,253 +4,152 @@ title: Getting Started with Search
 description: How to set up and install Backstage Search
 ---
 
+::::info
+This documentation is written for the new frontend system, which is the default
+in new Backstage apps. If your Backstage app still uses the old frontend system,
+read the [old frontend system version of this guide](./getting-started--old.md)
+instead.
+::::
+
 Search functions as a plugin to Backstage, so you will need to use Backstage to
 use Search.
 
 If you haven't setup Backstage already, start
 [here](../../getting-started/index.md).
 
-> If you used `npx @backstage/create-app`, and you have a search page defined in
-> `packages/app/src/components/search`, skip to
-> [`Customizing Search`](#customizing-search) below.
-
 ## Adding Search to the Frontend
 
-```bash
-# From your Backstage root directory
-cd packages/app
-yarn add @backstage/plugin-search
+```bash title="From your Backstage root directory"
+yarn --cwd packages/app add @backstage/plugin-search @backstage/plugin-search-react
 ```
 
-Create a new `packages/app/src/components/search/SearchPage.tsx` file in your
-Backstage app with the following contents:
+Once installed, the search plugin is automatically available in your app through
+the default feature discovery. It provides a search page at `/search`, a search
+navigation item in the sidebar, and a search modal accessible from the sidebar.
+For more details and alternative installation methods, see
+[installing plugins](../../frontend-system/building-apps/05-installing-plugins.md).
 
-```tsx
-import React from 'react';
-import { Content, Header, Page } from '@backstage/core-components';
-import { Grid, List, Card, CardContent } from '@material-ui/core';
-import {
-  SearchBar,
-  SearchResult,
-  DefaultResultListItem,
-  SearchFilter,
-} from '@backstage/plugin-search';
-import { CatalogResultListItem } from '@backstage/plugin-catalog';
+### Configuring the search page
 
-export const searchPage = (
-  <Page themeId="home">
-    <Header title="Search" />
-    <Content>
-      <Grid container direction="row">
-        <Grid item xs={12}>
-          <SearchBar />
-        </Grid>
-        <Grid item xs={3}>
-          <Card>
-            <CardContent>
-              <SearchFilter.Select
-                name="kind"
-                values={['Component', 'Template']}
-              />
-            </CardContent>
-            <CardContent>
-              <SearchFilter.Checkbox
-                name="lifecycle"
-                values={['experimental', 'production']}
-              />
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={9}>
-          <SearchResult>
-            {({ results }) => (
-              <List>
-                {results.map(result => {
-                  switch (result.type) {
-                    case 'software-catalog':
-                      return (
-                        <CatalogResultListItem
-                          key={result.document.location}
-                          result={result.document}
-                        />
-                      );
-                    default:
-                      return (
-                        <DefaultResultListItem
-                          key={result.document.location}
-                          result={result.document}
-                        />
-                      );
-                  }
-                })}
-              </List>
-            )}
-          </SearchResult>
-        </Grid>
-      </Grid>
-    </Content>
-  </Page>
-);
+The search page can be configured through `app-config.yaml`. For example, to
+disable search result tracking:
+
+```yaml title="app-config.yaml"
+app:
+  extensions:
+    - page:search:
+        config:
+          noTrack: true
 ```
 
-Bind the above Search Page to the `/search` route in your
-`packages/app/src/App.tsx` file, like this:
+### Search result list items
 
-```tsx
-import { SearchPage } from '@backstage/plugin-search';
-import { searchPage } from './components/search/SearchPage';
+The search page automatically discovers and uses search result list item
+extensions provided by installed plugins. For example, the catalog plugin
+provides a `CatalogSearchResultListItem` and the TechDocs plugin provides a
+`TechDocsSearchResultListItem`. These are automatically registered when the
+respective plugins are installed.
 
-const routes = (
-  <FlatRoutes>
-    <Route path="/search" element={<SearchPage />}>
-      {searchPage}
-    </Route>
-  </FlatRoutes>
-);
-```
+You can also install additional search result list item extensions using the
+`SearchResultListItemBlueprint` from `@backstage/plugin-search-react/alpha`.
+
+### Search filters
+
+Similarly, search filter extensions are automatically discovered. You can add
+custom filters using the `SearchFilterBlueprint` or
+`SearchFilterResultTypeBlueprint` from `@backstage/plugin-search-react/alpha`.
 
 ## Adding Search to the Backend
 
 Add the following plugins into your backend app:
 
-```bash
-# From your Backstage root directory
-cd packages/backend
-yarn add @backstage/plugin-search-backend @backstage/plugin-search-backend-node
+```bash title="From your Backstage root directory"
+yarn --cwd packages/backend add @backstage/plugin-search-backend @backstage/plugin-search-backend-module-pg @backstage/plugin-search-backend-module-catalog @backstage/plugin-search-backend-module-techdocs
 ```
 
-Create a `packages/backend/src/plugins/search.ts` file containing the following
-code:
+Then add the following lines:
 
-```typescript
-import { useHotCleanup } from '@backstage/backend-common';
-import { createRouter } from '@backstage/plugin-search-backend';
-import {
-  IndexBuilder,
-  LunrSearchEngine,
-} from '@backstage/plugin-search-backend-node';
-import { PluginEnvironment } from '../types';
-import { DefaultCatalogCollator } from '@backstage/plugin-catalog-backend';
+```ts title="packages/backend/src/index.ts"
+const backend = createBackend();
 
-export default async function createPlugin({
-  logger,
-  discovery,
-}: PluginEnvironment) {
-  const searchEngine = new LunrSearchEngine({ logger });
-  const indexBuilder = new IndexBuilder({ logger, searchEngine });
+// Other plugins...
 
-  indexBuilder.addCollator({
-    defaultRefreshIntervalSeconds: 600,
-    collator: new DefaultCatalogCollator({ discovery }),
-  });
+/* highlight-add-start */
+// search plugin
+backend.add(import('@backstage/plugin-search-backend'));
 
-  const { scheduler } = await indexBuilder.build();
+// search engines
+backend.add(import('@backstage/plugin-search-backend-module-pg'));
 
-  scheduler.start();
-  useHotCleanup(module, () => scheduler.stop());
+// search collators
+backend.add(import('@backstage/plugin-search-backend-module-catalog'));
+backend.add(import('@backstage/plugin-search-backend-module-techdocs'));
+/* highlight-add-end */
 
-  return await createRouter({
-    engine: indexBuilder.getSearchEngine(),
-    logger,
-  });
-}
+backend.start();
 ```
 
-Make the following modifications to your `packages/backend/src/index.ts` file:
+With the above setup Search will use the [Lunr](https://github.com/olivernn/lunr.js) in-memory Search Engine but if your have Postgres setup as your database then it will use Postgres as your Search Engine. Learn more in the [Search Engines](./search-engines.md) documentation.
 
-Import the `plugins/search` file you created above:
-
-```typescript
-import search from './plugins/search';
-```
-
-Set up an environment for search:
-
-```typescript
-const searchEnv = useHotMemoize(module, () => createEnv('search'));
-```
-
-Register the search service with the router:
-
-```typescript
-apiRouter.use('/search', await search(searchEnv));
-```
+The above also sets up two Collators for you - Catalog and TechDocs - which will index content from these two locations so that you can easily search them. Learn more in the [Collators documentation](./collators.md).
 
 ## Customizing Search
 
 ### Frontend
 
-The Search Plugin exposes several default filter types as static properties,
-including `<SearchFilter.Select />` and `<SearchFilter.Checkbox />`. These allow
-you to provide values relevant to your Backstage instance that, when selected,
-get passed to the backend.
+The search plugin provides extension points for customizing the search
+experience through blueprints. You can add custom search result list items,
+filters, and result type filters.
 
-```tsx {2-5,8-11}
-<CardContent>
-  <SearchFilter.Select
-    name="kind"
-    values={['Component', 'Template']}
-  />
-</CardContent>
-<CardContent>
-  <SearchFilter.Checkbox
-    name="lifecycle"
-    values={['production', 'experimental']}
-  />
-</CardContent>
-```
-
-If you have advanced filter needs, you can specify your own filter component
-like this (although new core filter contributions are welcome):
+For example, to create a custom search result list item, use the
+`SearchResultListItemBlueprint` from `@backstage/plugin-search-react/alpha`:
 
 ```tsx
-import { useSearch, SearchFilter } from '@backstage/plugin-search';
+import { SearchResultListItemBlueprint } from '@backstage/plugin-search-react/alpha';
 
-const MyCustomFilter = () => {
-  // Note: filters contain filter data from other filter components. Be sure
-  // not to clobber other filters' data!
-  const { filters, setFilters } = useSearch();
-
-  return (/* ... */);
-};
-
-// Which could be rendered like this:
-<SearchFilter component={MyCustomFilter} />
+export const MySearchResultListItem = SearchResultListItemBlueprint.make({
+  name: 'my-result-item',
+  params: {
+    predicate: result => result.type === 'my-custom-type',
+    component: async () => {
+      const { MyResultItem } = await import('./components/MyResultItem');
+      return MyResultItem;
+    },
+  },
+});
 ```
 
-It's good practice for search results to highlight information that was used to
-return it in the first place! The code below highlights how you might specify a
-custom result item component, using the `<CatalogResultListItem />` component as
-an example:
+Install this in your app by wrapping it in a frontend module and passing it to `createApp`:
 
-```tsx {7-13}
-<SearchResult>
-  {({ results }) => (
-    <List>
-      {results.map(result => {
-        // result.type is the index type defined by the collator.
-        switch (result.type) {
-          case 'software-catalog':
-            return (
-              <CatalogResultListItem
-                key={result.document.location}
-                result={result.document}
-              />
-            );
-          // ...
-        }
-      })}
-    </List>
-  )}
-</SearchResult>
+```tsx title="packages/app/src/search/searchModule.ts"
+import { createFrontendModule } from '@backstage/frontend-plugin-api';
+import { MySearchResultListItem } from './MySearchResultListItem';
+
+export const searchCustomizations = createFrontendModule({
+  pluginId: 'search',
+  extensions: [MySearchResultListItem],
+});
 ```
+
+```tsx title="packages/app/src/App.tsx"
+import { createApp } from '@backstage/frontend-defaults';
+import { searchCustomizations } from './search/searchModule';
+
+const app = createApp({
+  features: [searchCustomizations],
+});
+
+export default app.createRoot();
+```
+
+> For more advanced customization of the Search frontend, also see how to guides such as [How to implement your own Search API](./how-to-guides.md#how-to-implement-your-own-search-api) and [How to customize search results highlighting styling](./how-to-guides.md#how-to-customize-search-results-highlighting-styling)
 
 ### Backend
 
 Backstage Search isn't a search engine itself, rather, it provides an interface
 between your Backstage instance and a
 [Search Engine](./concepts.md#search-engines) of your choice. Currently, we only
-support two engines, an in-memory search Engine called Lunr and ElasticSearch.
+support two engines, an in-memory search Engine called Lunr and Elasticsearch.
 See [Search Engines](./search-engines.md) documentation for more information how
 to configure these in your Backstage instance.
 
@@ -262,28 +161,96 @@ which are responsible for providing documents
 number of collators with the `IndexBuilder` like this:
 
 ```typescript
-const indexBuilder = new IndexBuilder({ logger, searchEngine });
+const indexBuilder = new IndexBuilder({ logger: env.logger, searchEngine });
 
-indexBuilder.addCollator({
-  defaultRefreshIntervalSeconds: 600,
-  collator: new DefaultCatalogCollator({ discovery }),
+const every10MinutesSchedule = env.scheduler.createScheduledTaskRunner({
+  frequency: { minutes: 10 },
+  timeout: { minutes: 15 },
+  initialDelay: { seconds: 3 },
+});
+
+const everyHourSchedule = env.scheduler.createScheduledTaskRunner({
+  frequency: { hours: 1 },
+  timeout: { minutes: 90 },
+  initialDelay: { seconds: 3 },
 });
 
 indexBuilder.addCollator({
-  defaultRefreshIntervalSeconds: 3600,
-  collator: new MyCustomCollator(),
+  schedule: every10MinutesSchedule,
+  factory: DefaultCatalogCollatorFactory.fromConfig(env.config, {
+    discovery: env.discovery,
+    tokenManager: env.tokenManager,
+  }),
+});
+
+indexBuilder.addCollator({
+  schedule: everyHourSchedule,
+  factory: new MyCustomCollatorFactory(),
 });
 ```
 
 Backstage Search builds and maintains its index
 [on a schedule](./concepts.md#the-scheduler). You can change how often the
 indexes are rebuilt for a given type of document. You may want to do this if
-your documents are updated more or less frequently. You can do so by modifying
-its `defaultRefreshIntervalSeconds` value, like this:
+your documents are updated more or less frequently. You can do so by configuring
+a scheduled `SchedulerServiceTaskRunner` to pass into the `schedule` value, like this:
 
 ```typescript {3}
+const every10MinutesSchedule = env.scheduler.createScheduledTaskRunner({
+  frequency: { minutes: 10 },
+  timeout: { minutes: 15 },
+  initialDelay: { seconds: 3 },
+});
+
 indexBuilder.addCollator({
-  defaultRefreshIntervalSeconds: 600,
-  collator: new DefaultCatalogCollator({ discovery }),
+  schedule: every10MinutesSchedule,
+  factory: DefaultCatalogCollatorFactory.fromConfig(env.config, {
+    discovery: env.discovery,
+    tokenManager: env.tokenManager,
+  }),
 });
 ```
+
+:::note
+
+if you are using the in-memory Lunr search engine, you probably want to
+implement a non-distributed `SchedulerServiceTaskRunner` like the following to ensure consistency
+if you're running multiple search backend nodes (alternatively, you can configure
+the search plugin to use a non-distributed database such as
+[SQLite](../../tutorials/configuring-plugin-databases.md#postgresql-and-sqlite-3)):
+
+:::
+
+```typescript
+import {
+  SchedulerServiceTaskRunner,
+  SchedulerServiceTaskInvocationDefinition,
+} from '@backstage/backend-plugin-api';
+
+const schedule: SchedulerServiceTaskRunner = {
+  run: async (task: SchedulerServiceTaskInvocationDefinition) => {
+    const startRefresh = async () => {
+      while (!task.signal?.aborted) {
+        try {
+          await task.fn(task.signal);
+        } catch {
+          // ignore intentionally
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 600 * 1000));
+      }
+    };
+    startRefresh();
+  },
+};
+
+indexBuilder.addCollator({
+  schedule,
+  factory: DefaultCatalogCollatorFactory.fromConfig(env.config, {
+    discovery: env.discovery,
+    tokenManager: env.tokenManager,
+  }),
+});
+```
+
+> For more advanced customization of the Search backend, also see how to guides such as [How to customize fields in the Software Catalog or TechDocs index](./how-to-guides.md#how-to-customize-fields-in-the-software-catalog-or-techdocs-index)

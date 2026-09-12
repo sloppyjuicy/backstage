@@ -14,98 +14,107 @@
  * limitations under the License.
  */
 
-import ldap, { Client, SearchEntry, SearchOptions } from 'ldapjs';
-import { Logger } from 'winston';
-import { BindConfig } from './config';
-import { errorString } from './util';
+import { ForwardedError } from '@backstage/errors';
+import { readFile } from 'node:fs/promises';
+import { Client, Entry, SearchOptions, SearchResult } from 'ldapts';
+import tlsLib from 'node:tls';
+import { BindConfig, TLSConfig } from './config';
 import {
+  AEDirVendor,
   ActiveDirectoryVendor,
   DefaultLdapVendor,
+  LLDAPVendor,
+  FreeIpaVendor,
   LdapVendor,
+  GoogleLdapVendor,
 } from './vendors';
+import { LoggerService } from '@backstage/backend-plugin-api';
 
 /**
- * Basic wrapper for the ldapjs library.
+ * Basic wrapper for the `ldapjs` library.
  *
  * Helps out with promisifying calls, paging, binding etc.
+ *
+ * @public
  */
+
 export class LdapClient {
   private vendor: Promise<LdapVendor> | undefined;
 
   static async create(
-    logger: Logger,
+    logger: LoggerService,
     target: string,
     bind?: BindConfig,
+    tls?: TLSConfig,
   ): Promise<LdapClient> {
-    const client = ldap.createClient({ url: target });
-
-    // We want to have a catch-all error handler at the top, since the default
-    // behavior of the client is to blow up the entire process when it fails,
-    // unless an error handler is set.
-    client.on('error', (err: ldap.Error) => {
-      logger.warn(`LDAP client threw an error, ${errorString(err)}`);
-    });
-
-    if (!bind) {
-      return new LdapClient(client);
-    }
-
-    return new Promise<LdapClient>((resolve, reject) => {
-      const { dn, secret } = bind;
-      client.bind(dn, secret, err => {
-        if (err) {
-          reject(`LDAP bind failed for ${dn}, ${errorString(err)}`);
-        } else {
-          resolve(new LdapClient(client));
-        }
+    let secureContext;
+    if (tls && tls.certs && tls.keys) {
+      const cert = await readFile(tls.certs, 'utf-8');
+      const key = await readFile(tls.keys, 'utf-8');
+      secureContext = tlsLib.createSecureContext({
+        cert: cert,
+        key: key,
       });
+    }
+    const tlsOptions: tlsLib.ConnectionOptions = {
+      secureContext,
+      rejectUnauthorized: tls?.rejectUnauthorized,
+    };
+    const client = new Client({
+      url: target,
+      ...(Object.values(tlsOptions).some(v => v !== undefined)
+        ? { tlsOptions }
+        : undefined),
     });
+
+    const ldapClient = new LdapClient(client, logger);
+
+    if (bind) {
+      try {
+        await client.bind(bind.dn, bind.secret);
+      } catch (error) {
+        await client.unbind();
+        throw new ForwardedError(
+          `LDAP bind failed for ${bind.dn}, ${error}`,
+          error,
+        );
+      }
+    }
+    return ldapClient;
   }
 
-  constructor(private readonly client: Client) {}
+  private readonly client: Client;
+  private readonly logger: LoggerService;
+
+  constructor(client: Client, logger: LoggerService) {
+    this.client = client;
+    this.logger = logger;
+  }
 
   /**
    * Performs an LDAP search operation.
    *
-   * @param dn The fully qualified base DN to search within
-   * @param options The search options
+   * @param dn - The fully qualified base DN to search within
+   * @param options - The search options
    */
-  async search(dn: string, options: SearchOptions): Promise<SearchEntry[]> {
+  async search(dn: string, options: SearchOptions): Promise<SearchResult> {
+    this.logger.debug(`Reading LDAP entries so far`);
     try {
-      return await new Promise<SearchEntry[]>((resolve, reject) => {
-        const output: SearchEntry[] = [];
+      const ldaptsOptions: SearchOptions = {
+        scope: options.scope,
+        filter: options.filter,
+        attributes: options.attributes,
+        sizeLimit: options.sizeLimit,
+        timeLimit: options.timeLimit,
+        derefAliases: options.derefAliases,
+        paged: options.paged,
+      };
 
-        this.client.search(dn, options, (err, res) => {
-          if (err) {
-            reject(new Error(errorString(err)));
-            return;
-          }
+      const result = await this.client.search(dn, ldaptsOptions);
 
-          res.on('searchReference', () => {
-            reject(new Error('Unable to handle referral'));
-          });
-
-          res.on('searchEntry', entry => {
-            output.push(entry);
-          });
-
-          res.on('error', e => {
-            reject(new Error(errorString(e)));
-          });
-
-          res.on('end', r => {
-            if (!r) {
-              reject(new Error('Null response'));
-            } else if (r.status !== 0) {
-              reject(new Error(`Got status ${r.status}: ${r.errorMessage}`));
-            } else {
-              resolve(output);
-            }
-          });
-        });
-      });
+      return result;
     } catch (e) {
-      throw new Error(`LDAP search at DN "${dn}" failed, ${e.message}`);
+      throw new ForwardedError(`LDAP search at DN "${dn}" failed`, e);
     }
   }
 
@@ -119,10 +128,19 @@ export class LdapClient {
     if (this.vendor) {
       return this.vendor;
     }
+    // const clientHost = this.client?.host || '';
     this.vendor = this.getRootDSE()
       .then(root => {
-        if (root && root.raw?.forestFunctionality) {
+        if (root && root.forestFunctionality) {
           return ActiveDirectoryVendor;
+        } else if (root && root.ipaDomainLevel) {
+          return FreeIpaVendor;
+        } else if (root && 'aeRoot' in root) {
+          return AEDirVendor;
+        } else if (this.isGoogleLDAP(root)) {
+          return GoogleLdapVendor;
+        } else if (root && root.vendorName?.toString() === 'LLDAP') {
+          return LLDAPVendor;
         }
         return DefaultLdapVendor;
       })
@@ -134,17 +152,72 @@ export class LdapClient {
   }
 
   /**
+   * Check if the LDAP server is Google LDAP by examining RootDSE and schema
+   */
+  private isGoogleLDAP(rootDSE: Entry | undefined): boolean {
+    if (!rootDSE) {
+      return false;
+    }
+
+    // RootDSE characteristics
+    const hasGoogleRootDSEPattern =
+      !rootDSE.namingContexts && // No namingContexts
+      !rootDSE.supportedControl && // No supportedControl
+      !rootDSE.vendorName && // No vendor info
+      !rootDSE.vendorVersion &&
+      rootDSE.subschemaSubentry === 'cn=subschema';
+
+    if (!hasGoogleRootDSEPattern) {
+      return false;
+    }
+
+    try {
+      const schemaHasGoogleAttributes = this.checkGoogleSchema(rootDSE);
+      return schemaHasGoogleAttributes;
+    } catch (error) {
+      throw new ForwardedError('Schema check failed', error);
+    }
+  }
+
+  // Check a schema for Google-specific patterns
+  private checkGoogleSchema(rootDSE: Entry): boolean {
+    try {
+      const objectClasses = this.parseSchemaValues(rootDSE.objectClasses);
+      const attributeTypes = this.parseSchemaValues(rootDSE.attributeTypes);
+
+      // Check if any Google-specific attributes are present
+      const hasGoogleAttributes =
+        objectClasses.some(oc => oc.includes('googleUid')) ||
+        attributeTypes.some(at => at.includes('googleAdminCreated'));
+
+      return hasGoogleAttributes;
+    } catch (error) {
+      this.logger.warn('Error checking schema:', error);
+      return false;
+    }
+  }
+
+  private parseSchemaValues(
+    schemaValue: Buffer | Buffer[] | string[] | string,
+  ): string[] {
+    if (!schemaValue) return [];
+
+    const values = Array.isArray(schemaValue) ? schemaValue : [schemaValue];
+    return values.map(v => v.toString());
+  }
+
+  /**
    * Get the Root DSE.
    *
    * @see https://ldapwiki.com/wiki/RootDSE
    */
-  async getRootDSE(): Promise<SearchEntry | undefined> {
-    const result = await this.search('', {
+  async getRootDSE(): Promise<Entry | undefined> {
+    const result = await this.client.search('', {
       scope: 'base',
       filter: '(objectclass=*)',
     } as SearchOptions);
-    if (result && result.length === 1) {
-      return result[0];
+    if (result && result.searchEntries.length === 1) {
+      return result.searchEntries[0];
     }
     return undefined;
   }

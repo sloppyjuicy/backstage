@@ -8,15 +8,20 @@ It will elevate the visibility of errors where identified, and provide drill dow
 
 It directly interfaces with the [Kubernetes Backend Plugin (`@backstage-plugin-kubernetes-backend`)](https://github.com/backstage/backstage/tree/master/plugins/kubernetes-backend).
 
-_This plugin was created through the Backstage CLI_
-
 ## Introduction
 
 See our announcement blog post [New Backstage feature: Kubernetes for Service Owners](https://backstage.io/blog/2021/01/12/new-backstage-feature-kubernetes-for-service-owners) to learn more about the motivation behind developing the plugin.
 
 ## Setup & Configuration
 
-This plugin must be explicitly added to a Backstage app, along with it's peer backend plugin.
+This plugin must be installed in a Backstage app, along with its peer backend plugin.
+
+```bash
+# From your Backstage root directory
+yarn --cwd packages/app add @backstage/plugin-kubernetes
+```
+
+Once installed, the plugin is automatically available in your app through the default feature discovery. For more details and alternative installation methods, see [installing plugins](https://backstage.io/docs/frontend-system/building-apps/installing-plugins).
 
 It requires configuration in the Backstage `app-config.yaml` to connect to a Kubernetes API control plane.
 
@@ -24,9 +29,37 @@ In addition, configuration of an entity's `catalog-info.yaml` helps identify whi
 
 For more information, see the [formal documentation about the Kubernetes feature in Backstage](https://backstage.io/docs/features/kubernetes/overview).
 
+### Enabling the entity content tab
+
+Enable the Kubernetes entity content extension in your `app-config.yaml`:
+
+```yaml
+app:
+  extensions:
+    - entity-content:kubernetes/kubernetes
+```
+
+Now, the extension appears on your entity page as one of the tabs, which is called `KUBERNETES`.
+By default, the tab will only appear on entities that are Components or Resources. You can override
+that behavior by providing a config block to the extension, like so:
+
+```yaml
+app:
+  extensions:
+    - entity-content:kubernetes/kubernetes:
+        config:
+          filter:
+            kind:
+              $in:
+                - component
+                - api
+                - resource
+                - system
+```
+
 ## Getting started
 
-Your plugin has been added to the example app in this repository, meaning you'll be able to access it by running `yarn start` in the root directory, and then navigating to [/kubernetes](http://localhost:3000/kubernetes).
+Your plugin has been added to the example app in this repository, meaning you'll be able to access it by running `yarn start` in the root directory, and then navigating to [/kubernetes](http://localhost:3000/catalog/default/component/:component-name/kubernetes).
 
 You can also serve the plugin in isolation by running `yarn start` in the plugin directory.
 This method of serving the plugin provides quicker iteration speed and a faster startup and hot reloads.

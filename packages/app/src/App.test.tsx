@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { renderWithEffects } from '@backstage/test-utils';
-import App from './App';
+
+// Rarely, and only in windows CI, do these tests take slightly more than the
+// default five seconds
+jest.setTimeout(15_000);
 
 describe('App', () => {
   it('should render', async () => {
@@ -27,14 +29,14 @@ describe('App', () => {
           data: {
             app: {
               title: 'Test',
-              support: { url: 'http://localhost:7000/support' },
+              support: { url: 'http://localhost:7007/support' },
             },
-            backend: { baseUrl: 'http://localhost:7000' },
+            backend: { baseUrl: 'http://localhost:7007' },
             lighthouse: {
               baseUrl: 'http://localhost:3003',
             },
             techdocs: {
-              storageUrl: 'http://localhost:7000/api/techdocs/static/docs',
+              storageUrl: 'http://localhost:7007/api/techdocs/static/docs',
             },
           },
           context: 'test',
@@ -42,7 +44,8 @@ describe('App', () => {
       ] as any,
     };
 
-    const rendered = await renderWithEffects(<App />);
+    const { default: app } = await import('./App');
+    const rendered = await renderWithEffects(app);
     expect(rendered.baseElement).toBeInTheDocument();
   });
 });

@@ -15,24 +15,38 @@
  */
 
 import { Entity } from '@backstage/catalog-model';
-import { catalogRouteRef, useEntity } from '@backstage/plugin-catalog-react';
-import { Alert } from '@material-ui/lab';
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useEntity } from '@backstage/plugin-catalog-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DeleteEntityDialog } from './DeleteEntityDialog';
 import { useRouteRef } from '@backstage/core-plugin-api';
-
-export const isOrphan = (entity: Entity) =>
-  entity?.metadata?.annotations?.['backstage.io/orphan'] === 'true';
+import { rootRouteRef } from '../../routes';
+import { catalogTranslationRef } from '../../alpha/translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { Alert, Button } from '@backstage/ui';
 
 /**
- * Displays a warning alert if the entity is marked as orphan with the ability to delete said entity.
+ * Returns true if the given entity has the orphan annotation given by the
+ * catalog.
+ *
+ * @public
  */
-export const EntityOrphanWarning = () => {
+export function isOrphan(entity: Entity): boolean {
+  return entity?.metadata?.annotations?.['backstage.io/orphan'] === 'true';
+}
+
+/**
+ * Displays a warning alert if the entity is marked as orphan with the ability
+ * to delete said entity.
+ *
+ * @public
+ */
+export function EntityOrphanWarning() {
   const navigate = useNavigate();
-  const catalogLink = useRouteRef(catalogRouteRef);
+  const catalogLink = useRouteRef(rootRouteRef);
   const [confirmationDialogOpen, setConfirmationDialogOpen] = useState(false);
   const { entity } = useEntity();
+  const { t } = useTranslationRef(catalogTranslationRef);
 
   const cleanUpAfterRemoval = async () => {
     setConfirmationDialogOpen(false);
@@ -41,10 +55,21 @@ export const EntityOrphanWarning = () => {
 
   return (
     <>
-      <Alert severity="warning" onClick={() => setConfirmationDialogOpen(true)}>
-        This entity is not referenced by any location and is therefore not
-        receiving updates. Click here to delete.
-      </Alert>
+      <Alert
+        status="warning"
+        icon
+        title={t('deleteEntity.description')}
+        customActions={
+          <Button
+            size="small"
+            variant="tertiary"
+            destructive
+            onPress={() => setConfirmationDialogOpen(true)}
+          >
+            {t('deleteEntity.actionButtonTitle')}
+          </Button>
+        }
+      />
       <DeleteEntityDialog
         open={confirmationDialogOpen}
         entity={entity!}
@@ -53,4 +78,4 @@ export const EntityOrphanWarning = () => {
       />
     </>
   );
-};
+}

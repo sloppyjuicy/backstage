@@ -14,6 +14,21 @@
  * limitations under the License.
  */
 
-export { findPaths } from './paths';
+/**
+ * Common functionality used by cli, backend, and create-app
+ *
+ * @packageDocumentation
+ */
+
+export { findPaths, findOwnPaths, targetPaths, BACKSTAGE_JSON } from './paths';
 export { isChildPath } from './isChildPath';
-export type { Paths } from './paths';
+export type { Paths, TargetPaths, OwnPaths, ResolveFunc } from './paths';
+export {
+  run,
+  runOutput,
+  runCheck,
+  type RunChildProcess,
+  type RunOptions,
+  type RunOnOutput,
+} from './run';
+export { ExitCodeError } from './errors';

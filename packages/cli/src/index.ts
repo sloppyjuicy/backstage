@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 The Backstage Authors
+ * Copyright 2024 The Backstage Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,34 +14,35 @@
  * limitations under the License.
  */
 
-import program from 'commander';
 import chalk from 'chalk';
-import { exitWithError } from './lib/errors';
-import { version } from './lib/version';
-import { registerCommands } from './commands';
+import { CliInitializer } from './wiring/CliInitializer';
+import { discoverCliModules } from './wiring/discoverCliModules';
 
-const main = (argv: string[]) => {
-  program.name('backstage-cli').version(version);
+(async () => {
+  const initializer = new CliInitializer();
 
-  registerCommands(program);
+  const discoveredModules = discoverCliModules();
 
-  program.on('command:*', () => {
-    console.log();
-    console.log(chalk.red(`Invalid command: ${program.args.join(' ')}`));
-    console.log();
-    program.outputHelp();
-    process.exit(1);
-  });
-
-  program.parse(argv);
-};
-
-process.on('unhandledRejection', rejection => {
-  if (rejection instanceof Error) {
-    exitWithError(rejection);
+  if (discoveredModules.length > 0) {
+    for (const resolvedPath of discoveredModules) {
+      initializer.add(import(resolvedPath));
+    }
   } else {
-    exitWithError(new Error(`Unknown rejection: '${rejection}'`));
-  }
-});
+    // No CLI modules found in the project root; fall back to the built-in
+    // set while printing a deprecation warning.
+    console.error(
+      chalk.yellow(
+        `No CLI modules found in the project root dependencies. ` +
+          `Falling back to the built-in set of modules.\n` +
+          `This fallback will be removed in a future release. ` +
+          `Please add @backstage/cli-defaults as a devDependency ` +
+          `in your root package.json, or install individual ` +
+          `@backstage/cli-module-* packages for fine-grained control.\n`,
+      ),
+    );
 
-main(process.argv);
+    initializer.add(import('@backstage/cli-defaults'));
+  }
+
+  await initializer.run();
+})();

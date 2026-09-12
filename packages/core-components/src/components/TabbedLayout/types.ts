@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-import { TabProps } from '@material-ui/core';
-import * as React from 'react';
+import { TabProps } from '@material-ui/core/Tab';
+import { ElementType } from 'react';
 
 export type SubRoute = {
   path: string;
   title: string;
   children: JSX.Element;
-  tabProps?: TabProps<React.ElementType, { component?: React.ElementType }>;
+  tabProps?: TabProps<ElementType, { component?: ElementType }>;
 };

@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import { makeStyles, Typography, Grid } from '@material-ui/core';
+import { useElementFilter } from '@backstage/core-plugin-api';
+import Typography from '@material-ui/core/Typography';
+import { makeStyles } from '@material-ui/core/styles';
+import { ReactNode } from 'react';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { catalogTranslationRef } from '../../alpha/translation';
 
 const useStyles = makeStyles(theme => ({
   value: {
@@ -32,33 +36,45 @@ const useStyles = makeStyles(theme => ({
     letterSpacing: 0.5,
     overflow: 'hidden',
     whiteSpace: 'nowrap',
+    marginBottom: theme.spacing(1),
   },
 }));
 
-type Props = {
+/**
+ * Props for {@link AboutField}.
+ *
+ * @public
+ */
+export interface AboutFieldProps {
   label: string;
   value?: string;
-  gridSizes?: Record<string, number>;
-  children?: React.ReactNode;
-};
+  children?: ReactNode;
+  className?: string;
+}
 
-export const AboutField = ({ label, value, gridSizes, children }: Props) => {
+/** @public */
+export function AboutField(props: AboutFieldProps) {
+  const { label, value, children, className } = props;
   const classes = useStyles();
+  const { t } = useTranslationRef(catalogTranslationRef);
+
+  const childElements = useElementFilter(children, c => c.getElements());
 
   // Content is either children or a string prop `value`
-  const content = React.Children.count(children) ? (
-    children
-  ) : (
-    <Typography variant="body2" className={classes.value}>
-      {value || `unknown`}
-    </Typography>
-  );
+  const content =
+    childElements.length > 0 ? (
+      childElements
+    ) : (
+      <Typography variant="body2" className={classes.value}>
+        {value || t('aboutCard.unknown')}
+      </Typography>
+    );
   return (
-    <Grid item {...gridSizes}>
-      <Typography variant="subtitle2" className={classes.label}>
+    <div className={className}>
+      <Typography variant="inherit" component="h2" className={classes.label}>
         {label}
       </Typography>
       {content}
-    </Grid>
+    </div>
   );
-};
+}

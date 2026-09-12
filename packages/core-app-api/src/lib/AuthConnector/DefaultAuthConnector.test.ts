@@ -14,14 +14,25 @@
  * limitations under the License.
  */
 
-import ProviderIcon from '@material-ui/icons/AcUnit';
 import { DefaultAuthConnector } from './DefaultAuthConnector';
 import MockOAuthApi from '../../apis/implementations/OAuthRequestApi/MockOAuthApi';
 import * as loginPopup from '../loginPopup';
 import { UrlPatternDiscovery } from '../../apis';
-import { msw } from '@backstage/test-utils';
+import { registerMswTestHooks } from '@backstage/test-utils';
 import { setupServer } from 'msw/node';
-import { rest } from 'msw';
+import { http, HttpResponse } from 'msw';
+import { ConfigReader } from '@backstage/config';
+import { ConfigApi } from '@backstage/core-plugin-api';
+
+jest.mock('../loginPopup', () => {
+  return {
+    openLoginPopup: jest.fn(),
+  };
+});
+
+const configApi: ConfigApi = new ConfigReader({
+  enableExperimentalRedirectFlow: false,
+});
 
 const defaultOptions = {
   discoveryApi: UrlPatternDiscovery.compile('http://my-host/api/{{pluginId}}'),
@@ -29,7 +40,7 @@ const defaultOptions = {
   provider: {
     id: 'my-provider',
     title: 'My Provider',
-    icon: ProviderIcon,
+    icon: () => null,
   },
   oauthRequestApi: new MockOAuthApi(),
   sessionTransform: ({ expiresInSeconds, ...res }: any) => ({
@@ -37,32 +48,34 @@ const defaultOptions = {
     scopes: new Set(res.scopes.split(' ')),
     expiresAt: new Date(Date.now() + expiresInSeconds * 1000),
   }),
+  configApi: configApi,
 };
 
 describe('DefaultAuthConnector', () => {
   const server = setupServer();
-  msw.setupDefaultHandlers(server);
+  registerMswTestHooks(server);
 
   afterEach(() => {
     jest.resetAllMocks();
   });
 
-  it('should refresh a session', async () => {
+  it('should refresh a session with scope', async () => {
     server.use(
-      rest.get('*', (_req, res, ctx) =>
-        res(
-          ctx.json({
-            idToken: 'mock-id-token',
-            accessToken: 'mock-access-token',
-            scopes: 'a b c',
-            expiresInSeconds: '60',
-          }),
-        ),
-      ),
+      http.get('*', ({ request }) => {
+        const url = new URL(request.url);
+        return HttpResponse.json({
+          idToken: 'mock-id-token',
+          accessToken: 'mock-access-token',
+          scopes: url.searchParams.get('scope') || 'default-scope',
+          expiresInSeconds: '60',
+        });
+      }),
     );
 
-    const helper = new DefaultAuthConnector<any>(defaultOptions);
-    const session = await helper.refreshSession();
+    const connector = new DefaultAuthConnector<any>(defaultOptions);
+    const session = await connector.refreshSession({
+      scopes: new Set(['a', 'b', 'c']),
+    });
     expect(session.idToken).toBe('mock-id-token');
     expect(session.accessToken).toBe('mock-access-token');
     expect(session.scopes).toEqual(new Set(['a', 'b', 'c']));
@@ -72,33 +85,42 @@ describe('DefaultAuthConnector', () => {
 
   it('should handle failure to refresh session', async () => {
     server.use(
-      rest.get('*', (_req, res, ctx) =>
-        res(ctx.status(500, 'Error: Network NOPE')),
+      http.get(
+        '*',
+        () =>
+          new HttpResponse('', {
+            status: 500,
+            statusText: 'Error: Network NOPE',
+          }),
       ),
     );
 
-    const helper = new DefaultAuthConnector(defaultOptions);
-    await expect(helper.refreshSession()).rejects.toThrow(
+    const connector = new DefaultAuthConnector(defaultOptions);
+    await expect(connector.refreshSession()).rejects.toThrow(
       'Auth refresh request failed, Error: Network NOPE',
     );
   });
 
   it('should handle failure response when refreshing session', async () => {
-    server.use(rest.get('*', (_req, res, ctx) => res(ctx.status(401, 'NOPE'))));
+    server.use(
+      http.get('*', () =>
+        HttpResponse.text('', { status: 401, statusText: 'NOPE' }),
+      ),
+    );
 
-    const helper = new DefaultAuthConnector(defaultOptions);
-    await expect(helper.refreshSession()).rejects.toThrow(
+    const connector = new DefaultAuthConnector(defaultOptions);
+    await expect(connector.refreshSession()).rejects.toThrow(
       'Auth refresh request failed, NOPE',
     );
   });
 
   it('should fail if popup was rejected', async () => {
     const mockOauth = new MockOAuthApi();
-    const helper = new DefaultAuthConnector({
+    const connector = new DefaultAuthConnector({
       ...defaultOptions,
       oauthRequestApi: mockOauth,
     });
-    const promise = helper.createSession({ scopes: new Set(['a', 'b']) });
+    const promise = connector.createSession({ scopes: new Set(['a', 'b']) });
     await mockOauth.rejectAll();
     await expect(promise).rejects.toMatchObject({ name: 'RejectedError' });
   });
@@ -106,27 +128,27 @@ describe('DefaultAuthConnector', () => {
   it('should create a session', async () => {
     const mockOauth = new MockOAuthApi();
     const popupSpy = jest
-      .spyOn(loginPopup, 'showLoginPopup')
+      .spyOn(loginPopup, 'openLoginPopup')
       .mockResolvedValue({
         idToken: 'my-id-token',
         accessToken: 'my-access-token',
         scopes: 'a b',
         expiresInSeconds: 3600,
       });
-    const helper = new DefaultAuthConnector({
+    const connector = new DefaultAuthConnector({
       ...defaultOptions,
       oauthRequestApi: mockOauth,
     });
 
-    const sessionPromise = helper.createSession({
+    const sessionPromise = connector.createSession({
       scopes: new Set(['a', 'b']),
     });
 
     await mockOauth.triggerAll();
 
-    expect(popupSpy).toBeCalledTimes(1);
+    expect(popupSpy).toHaveBeenCalledTimes(1);
     expect(popupSpy.mock.calls[0][0]).toMatchObject({
-      url: 'http://my-host/api/auth/my-provider/start?scope=a%20b&env=production',
+      url: 'http://my-host/api/auth/my-provider/start?scope=a%20b&origin=http%3A%2F%2Flocalhost&flow=popup&env=production',
     });
 
     await expect(sessionPromise).resolves.toEqual({
@@ -139,42 +161,160 @@ describe('DefaultAuthConnector', () => {
 
   it('should instantly show popup if option is set', async () => {
     const popupSpy = jest
-      .spyOn(loginPopup, 'showLoginPopup')
+      .spyOn(loginPopup, 'openLoginPopup')
       .mockResolvedValue('my-session');
-    const helper = new DefaultAuthConnector({
+    const connector = new DefaultAuthConnector({
       ...defaultOptions,
       oauthRequestApi: new MockOAuthApi(),
       sessionTransform: str => str,
     });
 
-    const sessionPromise = helper.createSession({
+    const sessionPromise = connector.createSession({
       scopes: new Set(),
       instantPopup: true,
     });
 
     await expect(sessionPromise).resolves.toBe('my-session');
 
-    expect(popupSpy).toBeCalledTimes(1);
+    expect(popupSpy).toHaveBeenCalledTimes(1);
+    expect(popupSpy).toHaveBeenCalledWith({
+      name: 'My Provider Login',
+      url: 'http://my-host/api/auth/my-provider/start?scope=&origin=http%3A%2F%2Flocalhost&flow=popup&env=production',
+      width: 450,
+      height: 730,
+    });
+  });
+
+  it('should show popup fullscreen', async () => {
+    const popupSpy = jest
+      .spyOn(loginPopup, 'openLoginPopup')
+      .mockResolvedValue('my-session');
+
+    jest.spyOn(window.screen, 'width', 'get').mockReturnValue(1000);
+    jest.spyOn(window.screen, 'height', 'get').mockReturnValue(1000);
+
+    const connector = new DefaultAuthConnector({
+      ...defaultOptions,
+      oauthRequestApi: new MockOAuthApi(),
+      sessionTransform: str => str,
+      popupOptions: {
+        size: {
+          fullscreen: true,
+        },
+      },
+    });
+
+    const sessionPromise = connector.createSession({
+      scopes: new Set(),
+      instantPopup: true,
+    });
+
+    await expect(sessionPromise).resolves.toBe('my-session');
+
+    expect(popupSpy).toHaveBeenCalledWith({
+      height: 1000,
+      name: 'My Provider Login',
+      url: 'http://my-host/api/auth/my-provider/start?scope=&origin=http%3A%2F%2Flocalhost&flow=popup&env=production',
+      width: 1000,
+    });
+  });
+
+  it('should show popup with special width and height', async () => {
+    const popupSpy = jest
+      .spyOn(loginPopup, 'openLoginPopup')
+      .mockResolvedValue('my-session');
+    const connector = new DefaultAuthConnector({
+      ...defaultOptions,
+      oauthRequestApi: new MockOAuthApi(),
+      sessionTransform: str => str,
+      popupOptions: {
+        size: {
+          width: 500,
+          height: 1000,
+        },
+      },
+    });
+
+    const sessionPromise = connector.createSession({
+      scopes: new Set(),
+      instantPopup: true,
+    });
+
+    await expect(sessionPromise).resolves.toBe('my-session');
+
+    expect(popupSpy).toHaveBeenCalledWith({
+      name: 'My Provider Login',
+      url: 'http://my-host/api/auth/my-provider/start?scope=&origin=http%3A%2F%2Flocalhost&flow=popup&env=production',
+      width: 500,
+      height: 1000,
+    });
   });
 
   it('should use join func to join scopes', async () => {
     const mockOauth = new MockOAuthApi();
     const popupSpy = jest
-      .spyOn(loginPopup, 'showLoginPopup')
+      .spyOn(loginPopup, 'openLoginPopup')
       .mockResolvedValue({ scopes: '' });
-    const helper = new DefaultAuthConnector({
+    const connector = new DefaultAuthConnector({
       ...defaultOptions,
       joinScopes: scopes => `-${[...scopes].join('')}-`,
       oauthRequestApi: mockOauth,
     });
 
-    helper.createSession({ scopes: new Set(['a', 'b']) });
+    connector.createSession({ scopes: new Set(['a', 'b']) });
 
     await mockOauth.triggerAll();
 
-    expect(popupSpy).toBeCalledTimes(1);
+    expect(popupSpy).toHaveBeenCalledTimes(1);
     expect(popupSpy.mock.calls[0][0]).toMatchObject({
-      url: 'http://my-host/api/auth/my-provider/start?scope=-ab-&env=production',
+      url: 'http://my-host/api/auth/my-provider/start?scope=-ab-&origin=http%3A%2F%2Flocalhost&flow=popup&env=production',
     });
+  });
+
+  it('should not resolve when provider returns a logoutUrl', async () => {
+    const logoutUrl =
+      'https://test.auth0.com/v2/logout?federated&client_id=abc&returnTo=http%3A%2F%2Flocalhost';
+
+    server.use(http.post('*', () => HttpResponse.json({ logoutUrl })));
+
+    const connector = new DefaultAuthConnector(defaultOptions);
+
+    // When a logoutUrl is returned, removeSession redirects the browser and
+    // returns a never-resolving promise. Race against a short delay to verify
+    // that it does not resolve.
+    const result = await Promise.race([
+      connector.removeSession().then(() => 'resolved'),
+      new Promise<'timeout'>(r => setTimeout(() => r('timeout'), 50)),
+    ]);
+
+    expect(result).toBe('timeout');
+  });
+
+  it('should complete normally when provider returns empty logout response', async () => {
+    server.use(http.post('*', () => new HttpResponse(null, { status: 200 })));
+
+    const connector = new DefaultAuthConnector(defaultOptions);
+    await connector.removeSession();
+    // No redirect, no error — the original behavior
+  });
+
+  it('should complete normally when response is not JSON', async () => {
+    server.use(http.post('*', () => HttpResponse.text('OK', { status: 200 })));
+
+    const connector = new DefaultAuthConnector(defaultOptions);
+    await connector.removeSession();
+    // Should complete without error — non-JSON responses are ignored
+  });
+
+  it('should ignore logoutUrl with non-HTTPS protocol', async () => {
+    server.use(
+      http.post('*', () =>
+        HttpResponse.json({ logoutUrl: 'http://evil.com/steal' }),
+      ),
+    );
+
+    const connector = new DefaultAuthConnector(defaultOptions);
+    await connector.removeSession();
+    // Should complete normally without redirecting - http:// is rejected
   });
 });

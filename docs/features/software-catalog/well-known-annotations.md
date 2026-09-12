@@ -2,7 +2,6 @@
 id: well-known-annotations
 title: Well-known Annotations on Catalog Entities
 sidebar_label: Well-known Annotations
-# prettier-ignore
 description: Documentation that lists a number of well known Annotations, that have defined semantics. They can be attached to catalog entities and consumed by plugins as needed.
 ---
 
@@ -100,6 +99,35 @@ alongside the entity's source code, the value of this annotation can point to an
 absolute URL, matching the location reference string format outlined above, for
 example: `url:https://github.com/backstage/backstage/tree/master`
 
+### backstage.io/techdocs-entity
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    backstage.io/techdocs-entity: component:default/example
+```
+
+The value of this annotation informs of an external entity that owns the TechDocs.
+This allows you to reference TechDocs from a single source without either duplicating
+the TechDocs in the TechDocs page or needing multiple builds of the same docs.
+
+This is for situations where you have complex systems where they share a single repo, and likely a single TechDoc location.
+
+### backstage.io/techdocs-entity-path
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    backstage.io/techdocs-entity: component:default/example
+    backstage.io/techdocs-entity-path: /path/to/this/component
+```
+
+The value of this annotation informs of the path to this component's TechDocs within an external entity that owns the TechDocs.
+In conjunction with [backstage.io/techdocs-entity](#backstageiotechdocs-entity) this allows for deep linking into the TechDocs of
+another entity, not just linking to the root of another entity's TechDocs.
+
 ### backstage.io/view-url, backstage.io/edit-url
 
 ```yaml
@@ -110,7 +138,7 @@ metadata:
     backstage.io/edit-url: https://github.com/my-org/catalog/edit/master/my-service.jsonnet
 ```
 
-These annotations allow customising links from the catalog pages. The view URL
+These annotations allow customizing links from the catalog pages. The view URL
 should point to the canonical metadata YAML that governs this entity. The edit
 URL should point to the source file for the metadata. In the example above,
 `my-org` generates its catalog data from Jsonnet files in a monorepo, so the
@@ -130,6 +158,25 @@ A `Location` reference that points to the source code of the entity (typically a
 repository itself. If the URL points to a folder, it is important that it is
 suffixed with a `'/'` in order for relative path resolution to work
 consistently.
+
+### backstage.io/source-template
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    backstage.io/source-template: template:default/create-react-app-template
+```
+
+Represents the entity ref of the Scaffolder template that was originally used
+to create the given entity. Useful to power "create something similar"
+experiences, as well as to track adherence to software standards across the
+Catalog.
+
+Note that this value is only automatically added to an entity when the
+`catalog:write` action is used to create the `catalog-info.yaml` file. It is
+otherwise the template author's responsibility to ensure that any entity
+definition included as part of the template contains this annotation.
 
 ### jenkins.io/job-full-name
 
@@ -159,11 +206,11 @@ metadata:
     github.com/project-slug: backstage/backstage
 ```
 
-The value of this annotation is the so-called slug that identifies a project on
+The value of this annotation is the so-called slug that identifies a repository on
 [GitHub](https://github.com) (either the public one, or a private GitHub
 Enterprise installation) that is related to this entity. It is on the format
-`<organization>/<project>`, and is the same as can be seen in the URL location
-bar of the browser when viewing that project.
+`<organization or owner>/<repository>`, and is the same as can be seen in the URL location
+bar of the browser when viewing that repository.
 
 Specifying this annotation will enable GitHub related features in Backstage for
 that entity.
@@ -204,19 +251,93 @@ browser when viewing that user.
 This annotation can be used on a [User entity](descriptor-format.md#kind-user)
 to note that it originated from that user on GitHub.
 
+### github.com/user-id
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    github.com/user-id: 'MDQ6VXNlcmJhY2tzdGFnZS5leGFtcGxl'
+```
+
+The value of this annotation is the global node ID that identifies a user on
+[GitHub](https://github.com) (either the public one, or a private GitHub
+Enterprise installation) that is related to this entity. It is the `node_id`
+field in the REST API and the `id` field in the GraphQL API. Unlike the
+username, which can be changed by the user, the node ID is immutable.
+
+This annotation can be used on a [User entity](descriptor-format.md#kind-user)
+to note that it originated from that user on GitHub. It enables the
+`userIdMatchingUserEntityAnnotation` sign-in resolver to match users by their
+GitHub user ID during authentication.
+
+### gitlab.com/user-id
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    gitlab.com/user-id: '123456'
+```
+
+The value of this annotation is the numeric user ID that identifies a user on
+[GitLab](https://gitlab.com) (either the public one, or a private GitLab
+installation) that is related to this entity. For self-hosted GitLab instances,
+the annotation key will be `{integration-host}/user-id` where
+`{integration-host}` is the hostname of your GitLab instance. Unlike the
+username, which can be changed, the user ID is immutable.
+
+This annotation can be used on a [User entity](descriptor-format.md#kind-user)
+to note that it originated from that user on GitLab. It enables the
+`userIdMatchingUserEntityAnnotation` sign-in resolver to match users by their
+GitLab user ID during authentication.
+
+### gocd.org/pipelines
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    gocd.org/pipelines: backstage,backstage-pr,backstage-builder
+```
+
+The value of this annotation is a comma-separated list of the GoCD pipeline
+names to fetch CI/CD information for.
+
+The pipeline name is usually defined in the `gocd.yml` file for the pipeline
+definition.
+
+Specifying this annotation will enable GoCD related features in Backstage for
+that entity.
+
+### periskop.io/service-name
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    periskop.io/service-name: pump-station
+```
+
+The value of this annotation is the periskop project name for the given entity.
+
+Specifying this annotation will enable [Periskop](https://periskop.io/) related features in Backstage for
+that entity if the periskop plugin is installed.
+
 ### sentry.io/project-slug
 
 ```yaml
 # Example:
 metadata:
   annotations:
-    sentry.io/project-slug: pump-station
+    sentry.io/project-slug: backstage/pump-station
 ```
 
 The value of this annotation is the so-called slug (or alternatively, the ID) of
-a [Sentry](https://sentry.io) project within your organization. The organization
-slug is currently not configurable on a per-entity basis, but is assumed to be
-the same for all entities in the catalog.
+a [Sentry](https://sentry.io) project within your organization. The value can
+be the format of `[organization]/[project-slug]` or just `[project-slug]`. When
+the organization slug is omitted the `app-config.yaml` will be used as a
+fallback (`sentry.organization`).
 
 Specifying this annotation may enable Sentry related features in Backstage for
 that entity.
@@ -321,6 +442,19 @@ to `scm-only`, the plugin will only take into account files stored in source
 control (e.g. ignoring generated code). If set to `enabled`, all files covered
 by a coverage report will be taken into account.
 
+### vault.io/secrets-path
+
+```yaml
+# Example:
+metadata:
+  annotations:
+    vault.io/secrets-path: test/backstage
+```
+
+The value of this annotation contains the path to the secrets of the entity in
+Vault. If not present when the Vault plugin is in use, a message will be shown
+instead, letting the user know what is missing in the `catalog-info.yaml`.
+
 ## Deprecated Annotations
 
 The following annotations are deprecated, and only listed here to aid in
@@ -329,7 +463,7 @@ migrating away from them.
 ### backstage.io/github-actions-id
 
 This annotation was used for a while to enable the GitHub Actions feature. This
-is now instead using the [github.com/project-slug](#github-com-project-slug)
+is now instead using the [github.com/project-slug](#githubcomproject-slug)
 annotation, with the same value format.
 
 ### backstage.io/definition-at-location

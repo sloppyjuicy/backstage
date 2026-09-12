@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import { ReactNode } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
   MockErrorApi,
   renderInTestApp,
+  TestApiProvider,
   withLogCollector,
 } from '@backstage/test-utils';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
 import { errorApiRef } from '@backstage/core-plugin-api';
 
 type BombProps = {
   shouldThrow?: boolean;
-  children?: React.ReactNode;
+  children?: ReactNode;
 };
 
 const Bomb = ({ shouldThrow }: BombProps) => {
@@ -41,25 +41,25 @@ const Bomb = ({ shouldThrow }: BombProps) => {
 describe('<ErrorBoundary/>', () => {
   it('should render error boundary with and without error', async () => {
     const { error } = await withLogCollector(['error'], async () => {
-      const apis = ApiRegistry.with(errorApiRef, new MockErrorApi());
+      const errorApi = new MockErrorApi();
       const { rerender, queryByRole, getByRole, getByText } =
         await renderInTestApp(
-          <ApiProvider apis={apis}>
+          <TestApiProvider apis={[[errorApiRef, errorApi]]}>
             <ErrorBoundary>
               <Bomb />
             </ErrorBoundary>
-          </ApiProvider>,
+          </TestApiProvider>,
         );
 
       expect(queryByRole('alert')).not.toBeInTheDocument();
       expect(getByText(/working component/i)).toBeInTheDocument();
 
       rerender(
-        <ApiProvider apis={apis}>
+        <TestApiProvider apis={[[errorApiRef, errorApi]]}>
           <ErrorBoundary>
             <Bomb shouldThrow />
           </ErrorBoundary>
-        </ApiProvider>,
+        </TestApiProvider>,
       );
 
       expect(getByRole('alert')).toBeInTheDocument();
@@ -67,12 +67,20 @@ describe('<ErrorBoundary/>', () => {
     });
 
     expect(error).toEqual([
-      expect.stringMatching(/^Error: Uncaught \[Error: Bomb\]/),
-      expect.stringMatching(
-        /^The above error occurred in the <Bomb> component:/,
+      expect.stringContaining('Error: Bomb'),
+      expect.objectContaining({
+        type: 'unhandled-exception',
+      }),
+      expect.stringContaining('Error: Bomb'),
+      expect.objectContaining({
+        type: 'unhandled-exception',
+      }),
+      expect.stringContaining(
+        'The above error occurred in the <Bomb> component:',
       ),
-      expect.stringMatching(/^ErrorBoundary/),
+      expect.stringContaining('ErrorBoundary'),
+      expect.stringContaining('Warning: findDOMNode'), // React warning, unfortunate but currently true
     ]);
-    expect(error.length).toEqual(3);
+    expect(error.length).toEqual(7);
   });
 });

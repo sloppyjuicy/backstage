@@ -14,29 +14,32 @@
  * limitations under the License.
  */
 
-import parseGitUrl from 'git-url-parse';
-import { GitHubIntegrationConfig } from './config';
-import { GithubCredentials } from './GithubCredentialsProvider';
+import { GithubIntegrationConfig } from './config';
+import { parseGitUrlSafe } from '../helpers';
+import { GithubCredentials } from './types';
 
 /**
  * Given a URL pointing to a file on a provider, returns a URL that is suitable
  * for fetching the contents of the data.
+ *
+ * @remarks
  *
  * Converts
  * from: https://github.com/a/b/blob/branchname/path/to/c.yaml
  * to:   https://api.github.com/repos/a/b/contents/path/to/c.yaml?ref=branchname
  * or:   https://raw.githubusercontent.com/a/b/branchname/c.yaml
  *
- * @param url A URL pointing to a file
- * @param config The relevant provider config
+ * @param url - A URL pointing to a file
+ * @param config - The relevant provider config
+ * @public
  */
-export function getGitHubFileFetchUrl(
+export function getGithubFileFetchUrl(
   url: string,
-  config: GitHubIntegrationConfig,
+  config: GithubIntegrationConfig,
   credentials: GithubCredentials,
 ): string {
   try {
-    const { owner, name, ref, filepathtype, filepath } = parseGitUrl(url);
+    const { owner, name, ref, filepathtype, filepath } = parseGitUrlSafe(url);
     if (
       !owner ||
       !name ||
@@ -60,31 +63,8 @@ export function getGitHubFileFetchUrl(
   }
 }
 
-/**
- * Gets the request options necessary to make requests to a given provider.
- *
- * @deprecated This function is no longer used internally
- * @param config The relevant provider config
- */
-export function getGitHubRequestOptions(
-  config: GitHubIntegrationConfig,
-  credentials: GithubCredentials,
-): RequestInit {
-  const headers: HeadersInit = {};
-
-  if (chooseEndpoint(config, credentials) === 'api') {
-    headers.Accept = 'application/vnd.github.v3.raw';
-  }
-
-  if (credentials.token) {
-    headers.Authorization = `token ${credentials.token}`;
-  }
-
-  return { headers };
-}
-
-export function chooseEndpoint(
-  config: GitHubIntegrationConfig,
+function chooseEndpoint(
+  config: GithubIntegrationConfig,
   credentials: GithubCredentials,
 ): 'api' | 'raw' {
   if (config.apiBaseUrl && (credentials.token || !config.rawBaseUrl)) {

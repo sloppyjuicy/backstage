@@ -6,7 +6,9 @@ metadata:
 spec:
   targets:
     - ./remote-templates.yaml
-
+    - ./notifications-demo/template.yaml
+    - ./conditional-output-demo/template.yaml
+    - ./bui-kitchen-sink-demo/template.yaml
 # For local development of a template, you can reference your local templates here.
 # Examples:
 #

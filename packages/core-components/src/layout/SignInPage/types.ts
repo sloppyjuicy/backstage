@@ -17,12 +17,12 @@
 import { ComponentType } from 'react';
 import {
   SignInPageProps,
-  SignInResult,
   ApiHolder,
   ApiRef,
   ProfileInfoApi,
   BackstageIdentityApi,
   SessionApi,
+  IdentityApi,
 } from '@backstage/core-plugin-api';
 
 export type SignInProviderConfig = {
@@ -32,16 +32,21 @@ export type SignInProviderConfig = {
   apiRef: ApiRef<ProfileInfoApi & BackstageIdentityApi & SessionApi>;
 };
 
+/** @public */
 export type IdentityProviders = ('guest' | 'custom' | SignInProviderConfig)[];
 
 export type ProviderComponent = ComponentType<
-  SignInPageProps & { config: SignInProviderConfig }
+  SignInPageProps & {
+    config: SignInProviderConfig;
+    onSignInStarted(): void;
+    onSignInFailure(): void;
+  }
 >;
 
 export type ProviderLoader = (
   apis: ApiHolder,
   apiRef: ApiRef<ProfileInfoApi & BackstageIdentityApi & SessionApi>,
-) => Promise<SignInResult | undefined>;
+) => Promise<IdentityApi | undefined>;
 
 export type SignInProvider = {
   Component: ProviderComponent;

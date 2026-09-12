@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-enum LocalStorageKeys {
-  SIDEBAR_PIN_STATE = 'sidebarPinState',
-}
+const LocalStorageKeys = {
+  SIDEBAR_PIN_STATE: 'sidebarPinState',
+} as const;
 
 export const LocalStorage = {
   getSidebarPinState(): boolean {
@@ -24,10 +24,10 @@ export const LocalStorage = {
     try {
       value = JSON.parse(
         window.localStorage.getItem(LocalStorageKeys.SIDEBAR_PIN_STATE) ||
-          'false',
+          'true',
       );
     } catch {
-      return false;
+      return true;
     }
     return !!value;
   },

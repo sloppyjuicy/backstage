@@ -14,47 +14,30 @@
  * limitations under the License.
  */
 
+import type { CoreV1Api, Metrics } from '@kubernetes/client-node';
 import {
-  AppsV1Api,
-  AutoscalingV1Api,
-  CoreV1Api,
-  ExtensionsV1beta1Ingress,
-  NetworkingV1beta1Api,
-  V1ConfigMap,
-  V1Deployment,
-  V1HorizontalPodAutoscaler,
-  V1Pod,
-  V1ReplicaSet,
-} from '@kubernetes/client-node';
-import { V1Service } from '@kubernetes/client-node/dist/gen/model/v1Service';
-import http from 'http';
-import lodash, { Dictionary } from 'lodash';
-import { Logger } from 'winston';
-import {
-  ClusterDetails,
   FetchResponseWrapper,
   KubernetesFetcher,
-  KubernetesObjectTypes,
   ObjectFetchParams,
-  CustomResource,
-} from '../types/types';
+  ObjectToFetch,
+} from '@backstage/plugin-kubernetes-node';
 import {
   FetchResponse,
   KubernetesFetchError,
-  KubernetesErrorTypes,
+  PodStatusFetchResponse,
 } from '@backstage/plugin-kubernetes-common';
-import { KubernetesClientProvider } from './KubernetesClientProvider';
-
-export interface Clients {
-  core: CoreV1Api;
-  apps: AppsV1Api;
-  autoscaling: AutoscalingV1Api;
-  networkingBeta1: NetworkingV1beta1Api;
-}
+import { Response } from 'node-fetch';
+import { JsonObject } from '@backstage/types';
+import {
+  ClusterDetails,
+  KubernetesCredential,
+} from '@backstage/plugin-kubernetes-node';
+import { LoggerService } from '@backstage/backend-plugin-api';
+import { KubernetesConnection } from './KubernetesConnection';
 
 export interface KubernetesClientBasedFetcherOptions {
-  kubernetesClientProvider: KubernetesClientProvider;
-  logger: Logger;
+  logger: LoggerService;
+  connection: KubernetesConnection;
 }
 
 type FetchResult = FetchResponse | KubernetesFetchError;
@@ -65,251 +48,200 @@ const isError = (fr: FetchResult): fr is KubernetesFetchError =>
 function fetchResultsToResponseWrapper(
   results: FetchResult[],
 ): FetchResponseWrapper {
-  const groupBy: Dictionary<FetchResult[]> = lodash.groupBy(results, value => {
-    return isError(value) ? 'errors' : 'responses';
-  });
-
-  return {
-    errors: groupBy.errors ?? [],
-    responses: groupBy.responses ?? [],
-  } as FetchResponseWrapper; // TODO would be nice to get rid of this 'as'
+  const errors: KubernetesFetchError[] = [];
+  const responses: FetchResponse[] = [];
+  for (const result of results) {
+    if (isError(result)) {
+      errors.push(result);
+    } else {
+      responses.push(result);
+    }
+  }
+  return { errors, responses };
 }
 
-const statusCodeToErrorType = (statusCode: number): KubernetesErrorTypes => {
-  switch (statusCode) {
-    case 400:
-      return 'BAD_REQUEST';
-    case 401:
-      return 'UNAUTHORIZED_ERROR';
-    case 500:
-      return 'SYSTEM_ERROR';
-    default:
-      return 'UNKNOWN_ERROR';
-  }
-};
-
-const captureKubernetesErrorsRethrowOthers = (e: any): KubernetesFetchError => {
-  if (e.response && e.response.statusCode) {
-    return {
-      errorType: statusCodeToErrorType(e.response.statusCode),
-      statusCode: e.response.statusCode,
-      resourcePath: e.response.request.uri.pathname,
-    };
-  }
-  throw e;
-};
-
 export class KubernetesClientBasedFetcher implements KubernetesFetcher {
-  private readonly kubernetesClientProvider: KubernetesClientProvider;
-  private readonly logger: Logger;
+  private readonly connection: KubernetesConnection;
 
-  constructor({
-    kubernetesClientProvider,
-    logger,
-  }: KubernetesClientBasedFetcherOptions) {
-    this.kubernetesClientProvider = kubernetesClientProvider;
-    this.logger = logger;
+  constructor({ connection }: KubernetesClientBasedFetcherOptions) {
+    this.connection = connection;
   }
 
   fetchObjectsForService(
     params: ObjectFetchParams,
   ): Promise<FetchResponseWrapper> {
-    const fetchResults = Array.from(params.objectTypesToFetch).map(type => {
-      return this.fetchByObjectType(
-        params.clusterDetails,
-        type,
-        params.labelSelector ||
-          `backstage.io/kubernetes-id=${params.serviceId}`,
-      ).catch(captureKubernetesErrorsRethrowOthers);
-    });
+    const fetchResults = Array.from(params.objectTypesToFetch)
+      .concat(params.customResources)
+      .map(({ objectType, group, apiVersion, plural }) =>
+        this.fetchResource(
+          params.clusterDetails,
+          params.credential,
+          { group, apiVersion, plural },
+          params.namespace,
+          params.labelSelector,
+        ).then(
+          (r: Response): Promise<FetchResult> =>
+            r.ok
+              ? r.json().then(
+                  ({ kind, items }): FetchResponse => ({
+                    type: objectType,
+                    resources: this.transformResources(
+                      { objectType, group, apiVersion, plural },
+                      kind,
+                      items,
+                    ),
+                  }),
+                )
+              : this.connection.handleUnsuccessfulResponse(
+                  params.clusterDetails.name,
+                  r,
+                ),
+        ),
+      );
 
-    const customObjectsFetchResults = params.customResources.map(cr => {
-      return this.fetchCustomResource(
-        params.clusterDetails,
-        cr,
-        params.labelSelector ||
-          `backstage.io/kubernetes-id=${params.serviceId}`,
-      ).catch(captureKubernetesErrorsRethrowOthers);
-    });
-
-    return Promise.all(fetchResults.concat(customObjectsFetchResults)).then(
-      fetchResultsToResponseWrapper,
-    );
+    return Promise.all(fetchResults).then(fetchResultsToResponseWrapper);
   }
 
-  // TODO could probably do with a tidy up
-  private fetchByObjectType(
+  async fetchPodMetricsByNamespaces(
     clusterDetails: ClusterDetails,
-    type: KubernetesObjectTypes,
-    labelSelector: string,
-  ): Promise<FetchResponse> {
-    switch (type) {
-      case 'pods':
-        return this.fetchPodsForService(clusterDetails, labelSelector).then(
-          r => ({
-            type: type,
-            resources: r,
-          }),
-        );
-      case 'configmaps':
-        return this.fetchConfigMapsForService(
-          clusterDetails,
-          labelSelector,
-        ).then(r => ({ type: type, resources: r }));
-      case 'deployments':
-        return this.fetchDeploymentsForService(
-          clusterDetails,
-          labelSelector,
-        ).then(r => ({ type: type, resources: r }));
-      case 'replicasets':
-        return this.fetchReplicaSetsForService(
-          clusterDetails,
-          labelSelector,
-        ).then(r => ({ type: type, resources: r }));
-      case 'services':
-        return this.fetchServicesForService(clusterDetails, labelSelector).then(
-          r => ({ type: type, resources: r }),
-        );
-      case 'horizontalpodautoscalers':
-        return this.fetchHorizontalPodAutoscalersForService(
-          clusterDetails,
-          labelSelector,
-        ).then(r => ({ type: type, resources: r }));
-      case 'ingresses':
-        return this.fetchIngressesForService(
-          clusterDetails,
-          labelSelector,
-        ).then(r => ({ type: type, resources: r }));
-      default:
-        // unrecognised type
-        throw new Error(`unrecognised type=${type}`);
-    }
-  }
-
-  private fetchCustomResource(
-    clusterDetails: ClusterDetails,
-    customResource: CustomResource,
-    labelSelector: string,
-  ): Promise<FetchResponse> {
-    const customObjects =
-      this.kubernetesClientProvider.getCustomObjectsClient(clusterDetails);
-
-    return customObjects
-      .listClusterCustomObject(
-        customResource.group,
-        customResource.apiVersion,
-        customResource.plural,
-        '',
-        '',
-        '',
+    credential: KubernetesCredential,
+    namespaces: Set<string>,
+    labelSelector?: string,
+  ): Promise<FetchResponseWrapper> {
+    const fetchResults = Array.from(namespaces).map(ns =>
+      this.fetchPodMetricsForNamespace(
+        clusterDetails,
+        credential,
+        ns,
         labelSelector,
-      )
-      .then(r => {
-        return { type: 'customresources', resources: (r.body as any).items };
-      });
+      ),
+    );
+
+    return Promise.all(fetchResults).then(fetchResultsToResponseWrapper);
   }
 
-  private singleClusterFetch<T>(
+  private async fetchPodMetricsForNamespace(
     clusterDetails: ClusterDetails,
-    fn: (
-      client: Clients,
-    ) => Promise<{ body: { items: Array<T> }; response: http.IncomingMessage }>,
-  ): Promise<Array<T>> {
-    const core =
-      this.kubernetesClientProvider.getCoreClientByClusterDetails(
+    credential: KubernetesCredential,
+    namespace: string,
+    labelSelector?: string,
+  ): Promise<FetchResult> {
+    const [podMetrics, podList] = await Promise.all([
+      this.fetchResource(
         clusterDetails,
-      );
-    const apps =
-      this.kubernetesClientProvider.getAppsClientByClusterDetails(
+        credential,
+        { group: 'metrics.k8s.io', apiVersion: 'v1beta1', plural: 'pods' },
+        namespace,
+        labelSelector,
+      ),
+      this.fetchResource(
         clusterDetails,
+        credential,
+        { group: '', apiVersion: 'v1', plural: 'pods' },
+        namespace,
+        labelSelector,
+      ),
+    ]);
+    if (podMetrics.ok && podList.ok) {
+      const { topPods } = await import('@kubernetes/client-node');
+      return topPods(
+        {
+          listPodForAllNamespaces: () => podList.json(),
+        } as unknown as CoreV1Api,
+        {
+          getPodMetrics: () => podMetrics.json(),
+        } as unknown as Metrics,
+      ).then(
+        (resources): PodStatusFetchResponse => ({
+          type: 'podstatus',
+          resources,
+        }),
       );
-    const autoscaling =
-      this.kubernetesClientProvider.getAutoscalingClientByClusterDetails(
-        clusterDetails,
+    } else if (podMetrics.ok) {
+      return this.connection.handleUnsuccessfulResponse(
+        clusterDetails.name,
+        podList,
       );
-    const networkingBeta1 =
-      this.kubernetesClientProvider.getNetworkingBeta1Client(clusterDetails);
+    }
+    return this.connection.handleUnsuccessfulResponse(
+      clusterDetails.name,
+      podMetrics,
+    );
+  }
 
-    this.logger.debug(`calling cluster=${clusterDetails.name}`);
-    return fn({ core, apps, autoscaling, networkingBeta1 }).then(({ body }) => {
-      return body.items;
+  private async fetchResource(
+    clusterDetails: ClusterDetails,
+    credential: KubernetesCredential,
+    resource: Pick<ObjectToFetch, 'group' | 'apiVersion' | 'plural'>,
+    namespace?: string,
+    labelSelector?: string,
+  ): Promise<Response> {
+    const resourcePath = this.connection.buildResourcePath(
+      resource.group,
+      resource.apiVersion,
+      resource.plural,
+      namespace,
+    );
+
+    return this.connection.fetchWithConnection(
+      clusterDetails,
+      credential,
+      resourcePath,
+      labelSelector,
+    );
+  }
+
+  private redactSecretData(items: JsonObject[]): JsonObject[] {
+    return items.map((item: JsonObject) => {
+      const redacted: JsonObject = { ...item };
+      if (item.data && typeof item.data === 'object') {
+        redacted.data = Object.fromEntries(
+          Object.keys(item.data).map(key => [key, '***']),
+        );
+      }
+      if (item.stringData && typeof item.stringData === 'object') {
+        redacted.stringData = Object.fromEntries(
+          Object.keys(item.stringData).map(key => [key, '***']),
+        );
+      }
+      return redacted;
     });
   }
 
-  private fetchServicesForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1Service>> {
-    return this.singleClusterFetch<V1Service>(clusterDetails, ({ core }) =>
-      core.listServiceForAllNamespaces(false, '', '', labelSelector),
-    );
-  }
+  private transformResources(
+    resource: ObjectToFetch,
+    kind: string | undefined,
+    items: JsonObject[],
+  ): JsonObject[] {
+    const itemKind = kind?.replace(/(List)$/, '');
 
-  private fetchPodsForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1Pod>> {
-    return this.singleClusterFetch<V1Pod>(clusterDetails, ({ core }) =>
-      core.listPodForAllNamespaces(false, '', '', labelSelector),
-    );
-  }
+    // Whether a response holds Secrets is decided from the resource that was
+    // requested and from the kind reported by the API server, rather than from
+    // the object type, which callers can influence. The request is checked on
+    // its own so that masking does not depend on the response at all, and the
+    // kind is checked as well to cover requests that reach Secrets by some
+    // other shape.
+    const containsSecrets =
+      resource.objectType === 'secrets' ||
+      itemKind === 'Secret' ||
+      (resource.group === '' &&
+        resource.apiVersion === 'v1' &&
+        resource.plural === 'secrets');
 
-  private fetchConfigMapsForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1ConfigMap>> {
-    return this.singleClusterFetch<V1Pod>(clusterDetails, ({ core }) =>
-      core.listConfigMapForAllNamespaces(false, '', '', labelSelector),
-    );
-  }
+    const resources = containsSecrets ? this.redactSecretData(items) : items;
 
-  private fetchDeploymentsForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1Deployment>> {
-    return this.singleClusterFetch<V1Deployment>(clusterDetails, ({ apps }) =>
-      apps.listDeploymentForAllNamespaces(false, '', '', labelSelector),
-    );
-  }
+    if (resource.objectType === 'customresources') {
+      if (itemKind === undefined) {
+        throw new Error(
+          `Missing kind in response when fetching '${resource.plural}'`,
+        );
+      }
+      return resources.map((item: JsonObject) => ({
+        ...item,
+        kind: itemKind,
+      }));
+    }
 
-  private fetchReplicaSetsForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1ReplicaSet>> {
-    return this.singleClusterFetch<V1ReplicaSet>(clusterDetails, ({ apps }) =>
-      apps.listReplicaSetForAllNamespaces(false, '', '', labelSelector),
-    );
-  }
-
-  private fetchHorizontalPodAutoscalersForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<V1HorizontalPodAutoscaler>> {
-    return this.singleClusterFetch<V1HorizontalPodAutoscaler>(
-      clusterDetails,
-      ({ autoscaling }) =>
-        autoscaling.listHorizontalPodAutoscalerForAllNamespaces(
-          false,
-          '',
-          '',
-          labelSelector,
-        ),
-    );
-  }
-
-  private fetchIngressesForService(
-    clusterDetails: ClusterDetails,
-    labelSelector: string,
-  ): Promise<Array<ExtensionsV1beta1Ingress>> {
-    return this.singleClusterFetch<ExtensionsV1beta1Ingress>(
-      clusterDetails,
-      ({ networkingBeta1 }) =>
-        networkingBeta1.listIngressForAllNamespaces(
-          false,
-          '',
-          '',
-          labelSelector,
-        ),
-    );
+    return resources;
   }
 }

@@ -14,63 +14,111 @@
  * limitations under the License.
  */
 
-import { CircularProgress, TextField } from '@material-ui/core';
+import CircularProgress from '@material-ui/core/CircularProgress';
+import TextField from '@material-ui/core/TextField';
 import { TextFieldProps } from '@material-ui/core/TextField/TextField';
-import { Autocomplete } from '@material-ui/lab';
-import React from 'react';
-import {
-  Control,
-  Controller,
-  FieldErrors,
-  UseControllerOptions,
-} from 'react-hook-form';
+import Autocomplete from '@material-ui/lab/Autocomplete';
+import { ComponentProps, ReactNode, ChangeEvent, Fragment } from 'react';
+import { Controller, FieldErrors } from 'react-hook-form';
 
-type Props<TFieldValue extends string> = {
+/**
+ * An option of {@link AutocompleteTextField}.
+ *
+ * Plain strings are used both as the visible label and as the selected value,
+ * while the object form allows the option to be presented with a different
+ * label than the value it selects.
+ *
+ * @public
+ */
+export type AutocompleteTextFieldOption =
+  | string
+  | { label: string; id: string };
+
+function optionLabel(option: AutocompleteTextFieldOption): string {
+  return typeof option === 'string' ? option : option.label;
+}
+
+/**
+ * Resolves the value that is stored in the form for a selection.
+ *
+ * `autoSelect` combined with `freeSolo` makes the autocompletion emit the raw
+ * input string rather than the option object, both when an option is picked
+ * from the list and when the field is blurred. Labelled options are therefore
+ * matched back to their id, so that the form never stores a display label.
+ */
+function optionValue(
+  value: AutocompleteTextFieldOption | null,
+  options: AutocompleteTextFieldOption[],
+): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    return value.id;
+  }
+  const option = options.find(o => typeof o !== 'string' && o.label === value);
+  return option && typeof option !== 'string' ? option.id : value;
+}
+
+/**
+ * Props for {@link AutocompleteTextField}.
+ *
+ * @public
+ */
+export interface AutocompleteTextFieldProps<TFieldValue extends string> {
   name: TFieldValue;
-  options: string[];
+  options: AutocompleteTextFieldOption[];
   required?: boolean;
 
-  control?: Control<Record<string, any>>;
-  errors?: FieldErrors<Record<TFieldValue, string>>;
-  rules?: UseControllerOptions<Record<TFieldValue, any>>['rules'];
+  errors?: FieldErrors;
+  rules?: ComponentProps<typeof Controller>['rules'];
 
   loading?: boolean;
   loadingText?: string;
 
-  helperText?: React.ReactNode;
+  helperText?: ReactNode;
   errorHelperText?: string;
 
   textFieldProps?: Omit<TextFieldProps, 'required' | 'fullWidth'>;
-};
+}
 
-export const AutocompleteTextField = <TFieldValue extends string>({
-  name,
-  options,
-  required,
-  control,
-  errors,
-  rules,
-  loading = false,
-  loadingText,
-  helperText,
-  errorHelperText,
-  textFieldProps = {},
-}: Props<TFieldValue>) => {
+/**
+ * An autocompletion text field for the catalog import flows.
+ *
+ * @public
+ */
+export const AutocompleteTextField = <TFieldValue extends string>(
+  props: AutocompleteTextFieldProps<TFieldValue>,
+) => {
+  const {
+    name,
+    options,
+    required,
+    errors,
+    rules,
+    loading = false,
+    loadingText,
+    helperText,
+    errorHelperText,
+    textFieldProps = {},
+  } = props;
+
   return (
     <Controller
       name={name}
-      control={control}
       rules={rules}
-      render={({ value, onChange, onBlur }) => (
+      render={({ field: { onChange } }) => (
         <Autocomplete
           loading={loading}
           loadingText={loadingText}
           options={options || []}
-          onChange={(_: any, v: string | null) => onChange(v || '')}
-          onBlur={onBlur}
-          value={value}
           autoSelect
           freeSolo
+          getOptionLabel={optionLabel}
+          onChange={(
+            _event: ChangeEvent<{}>,
+            value: AutocompleteTextFieldOption | null,
+          ) => onChange(optionValue(value, options))}
           renderInput={params => (
             <TextField
               {...params}
@@ -82,12 +130,12 @@ export const AutocompleteTextField = <TFieldValue extends string>({
               InputProps={{
                 ...params.InputProps,
                 endAdornment: (
-                  <React.Fragment>
+                  <Fragment>
                     {loading ? (
                       <CircularProgress color="inherit" size="1em" />
                     ) : null}
                     {params.InputProps.endAdornment}
-                  </React.Fragment>
+                  </Fragment>
                 ),
               }}
               {...textFieldProps}

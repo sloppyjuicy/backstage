@@ -1,6 +1,6 @@
 ---
 id: adrs-adr003
-title: ADR003: Avoid Default Exports and Prefer Named Exports
+title: 'ADR003: Avoid Default Exports and Prefer Named Exports'
 description: Architecture Decision Record (ADR) log on Avoid Default Exports and Prefer Named Exports
 ---
 
@@ -14,8 +14,8 @@ thing well". The module would be consumed
 (`const localName = require('the-module');`) without having to know the internal
 structure.
 
-Now, ESModules are the primary authoring format. They have numerous benefits,
-such as compile-time verification of exports, and standards-defined semantics.
+Now, `ESModules` are the primary authoring format. They have numerous benefits,
+such as compile-time verification of exports and standards-defined semantics.
 They have a similar mechanism known as "default exports", which allows for a
 consumer to `import localName from 'the-module';`. This is implicitly the same
 as `import { default as localName } from 'the-module';`.
@@ -23,7 +23,7 @@ as `import { default as localName } from 'the-module';`.
 However, there are numerous reasons to avoid default exports, as documented by
 others before:
 
-- https://humanwhocodes.com/blog/2019/01/stop-using-default-exports-javascript-module/
+- <https://humanwhocodes.com/blog/2019/01/stop-using-default-exports-javascript-module/>
 
 A summary:
 
@@ -42,13 +42,13 @@ A summary:
 Using named exports helps prevent needing to rename symbols, which has myriad
 benefits. A few are:
 
-- IDE tools like "Find All References" and "Go To Definition" function
-- Manual codebase searching ("grep", etc) is easier with a unique symbol
+- IDE tools like "Find All References" and the "Go To Definition" function.
+- Manual codebase searching ("grep", etc) is easier with a unique symbol.
 
 ## Decision
 
 We will stop using default exports except when absolutely necessary (such as
-[`React.lazy`](https://reactjs.org/docs/code-splitting.html#reactlazy) modules).
+[`React.lazy`](https://18.react.dev/reference/react/lazy) modules).
 A workaround exists for those that would prefer to never use `default`:
 
 ```ts

@@ -14,28 +14,25 @@
  * limitations under the License.
  */
 
-import { Error as LDAPError, SearchEntry } from 'ldapjs';
+import { Entry } from 'ldapts';
 import { LdapVendor } from './vendors';
 
 /**
- * Builds a string form of an LDAP Error structure.
+ * Maps a single-valued attribute to a consumer.
  *
- * @param error The error
- */
-export function errorString(error: LDAPError) {
-  return `${error.code} ${error.name}: ${error.message}`;
-}
-
-/**
- * Maps a single-valued attribute to a consumer
+ * This helper can be useful when implementing a user or group transformer.
  *
- * @param entry The LDAP source entry
- * @param vendor The LDAP vendor
- * @param attributeName The source attribute to map. If the attribute is undefined the mapping will be silently ignored.
- * @param setter The function to be called with the decoded attribute from the source entry
+ * @param entry - The LDAP source entry
+ * @param vendor - The LDAP vendor
+ * @param attributeName - The source attribute to map. If the attribute is
+ *        undefined the mapping will be silently ignored.
+ * @param setter - The function to be called with the decoded attribute from the
+ *        source entry
+ *
+ * @public
  */
 export function mapStringAttr(
-  entry: SearchEntry,
+  entry: Entry,
   vendor: LdapVendor,
   attributeName: string | undefined,
   setter: (value: string) => void,
@@ -47,3 +44,11 @@ export function mapStringAttr(
     }
   }
 }
+
+export type RecursivePartial<T> = {
+  [P in keyof T]?: T[P] extends (infer U)[]
+    ? RecursivePartial<U>[]
+    : T[P] extends object
+    ? RecursivePartial<T[P]>
+    : T[P];
+};

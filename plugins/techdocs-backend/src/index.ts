@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
-export { createRouter } from './service/router';
-export * from './search';
-export * from '@backstage/techdocs-common';
+/**
+ * The Backstage backend plugin that renders technical documentation for your components
+ *
+ * @packageDocumentation
+ */
+
+export { techdocsPlugin as default } from './plugin';

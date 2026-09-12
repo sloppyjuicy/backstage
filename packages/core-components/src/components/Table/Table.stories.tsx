@@ -14,15 +14,16 @@
  * limitations under the License.
  */
 
-import { makeStyles } from '@material-ui/core';
-import React from 'react';
+import { makeStyles } from '@material-ui/core/styles';
+import { ReactNode } from 'react';
 import { Link } from '../Link';
-import { SubvalueCell, Table, TableColumn } from '.';
-import { TableFilter } from './Table';
+import { SubvalueCell } from './SubvalueCell';
+import { Table, TableColumn, TableFilter } from './Table';
 
 export default {
   title: 'Data Display/Table',
   component: Table,
+  tags: ['!manifest'],
 };
 
 const useStyles = makeStyles(theme => ({
@@ -83,6 +84,43 @@ export const DefaultTable = () => {
         options={{ paging: false }}
         data={testData10}
         columns={columns}
+        title="Backstage Table"
+      />
+    </div>
+  );
+};
+
+export const LoadingTable = () => {
+  const classes = useStyles();
+  const columns: TableColumn[] = [
+    {
+      title: 'Column 1',
+      field: 'col1',
+      highlight: true,
+    },
+    {
+      title: 'Column 2',
+      field: 'col2',
+    },
+    {
+      title: 'Numeric value',
+      field: 'number',
+      type: 'numeric',
+    },
+    {
+      title: 'A Date',
+      field: 'date',
+      type: 'date',
+    },
+  ];
+
+  return (
+    <div className={classes.container}>
+      <Table
+        options={{ paging: false }}
+        data={[]}
+        columns={columns}
+        isLoading
         title="Backstage Table"
       />
     </div>
@@ -213,11 +251,11 @@ export const SubvalueTable = () => {
         row: any, // Only needed if you want subvalue searchable
       ) =>
         `${row.col1} ${row.subvalue}`
-          .toLocaleUpperCase('en-US')
-          .includes(query.toLocaleUpperCase('en-US')),
+          .toUpperCase()
+          .includes(query.toUpperCase()),
       field: 'col1',
       highlight: true,
-      render: (row: any): React.ReactNode => (
+      render: (row: any): ReactNode => (
         <SubvalueCell value={row.col1} subvalue={row.subvalue} />
       ),
     },
@@ -313,10 +351,6 @@ export const FilterTable = () => {
       column: 'Column 2',
       type: 'multiple-select',
     },
-    {
-      column: 'Numeric value',
-      type: 'checkbox-tree',
-    },
   ];
 
   return (
@@ -326,6 +360,52 @@ export const FilterTable = () => {
         data={testData10}
         columns={columns}
         filters={filters}
+      />
+    </div>
+  );
+};
+
+export const StyledTable = () => {
+  const classes = useStyles();
+  const columns: TableColumn[] = [
+    {
+      title: 'Column 1',
+      field: 'col1',
+      highlight: true,
+      cellStyle: (_, rowData: any & { tableData: { id: number } }) => {
+        return rowData.tableData.id % 2 === 0
+          ? {
+              color: '#6CD75F',
+            }
+          : {
+              color: '#DC3D5A',
+            };
+      },
+    },
+    {
+      title: 'Column 2',
+      field: 'col2',
+      cellStyle: { color: '#2FA5DC' },
+    },
+    {
+      title: 'Numeric value',
+      field: 'number',
+      type: 'numeric',
+    },
+    {
+      title: 'A Date',
+      field: 'date',
+      type: 'date',
+    },
+  ];
+
+  return (
+    <div className={classes.container}>
+      <Table
+        options={{ paging: false }}
+        data={testData10}
+        columns={columns}
+        title="Backstage Table"
       />
     </div>
   );

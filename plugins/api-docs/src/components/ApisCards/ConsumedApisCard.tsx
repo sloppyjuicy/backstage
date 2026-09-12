@@ -14,34 +14,66 @@
  * limitations under the License.
  */
 
-import {
-  ApiEntity,
-  Entity,
-  RELATION_CONSUMES_API,
-} from '@backstage/catalog-model';
-import { Typography } from '@material-ui/core';
+import { ApiEntity, RELATION_CONSUMES_API } from '@backstage/catalog-model';
+import Typography from '@material-ui/core/Typography';
 import {
   EntityTable,
   useEntity,
   useRelatedEntities,
 } from '@backstage/plugin-catalog-react';
-import React from 'react';
-import { apiEntityColumns } from './presets';
+import {
+  EntityRelationCard,
+  EntityColumnConfig,
+} from '@backstage/plugin-catalog-react/alpha';
+import { getApiEntityColumns, getApiEntityColumnConfig } from './presets';
 import {
   CodeSnippet,
   InfoCard,
+  InfoCardVariants,
   Link,
   Progress,
+  TableColumn,
+  TableOptions,
   WarningPanel,
 } from '@backstage/core-components';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import { apiDocsTranslationRef } from '../../translation';
 
-type Props = {
-  /** @deprecated The entity is now grabbed from context instead */
-  entity?: Entity;
-  variant?: 'gridItem';
-};
+/** @public */
+export interface ConsumedApisCardProps {
+  title?: string;
+  columnConfig?: EntityColumnConfig[];
+}
 
-export const ConsumedApisCard = ({ variant = 'gridItem' }: Props) => {
+/**
+ * Props for the legacy MUI-based rendering.
+ * @deprecated Use {@link ConsumedApisCardProps} instead.
+ * @public
+ */
+export interface ConsumedApisCardLegacyProps {
+  title?: string;
+  /** @deprecated Use `columnConfig` instead. */
+  variant?: InfoCardVariants;
+  /** @deprecated Use `columnConfig` instead. */
+  columns?: TableColumn<ApiEntity>[];
+  /** @deprecated Use `columnConfig` instead. */
+  tableOptions?: TableOptions;
+}
+
+function isLegacyProps(
+  props: ConsumedApisCardProps | ConsumedApisCardLegacyProps,
+): props is ConsumedApisCardLegacyProps {
+  return 'variant' in props || 'columns' in props || 'tableOptions' in props;
+}
+
+function ConsumedApisCardLegacy(props: ConsumedApisCardLegacyProps) {
+  const { t } = useTranslationRef(apiDocsTranslationRef);
+  const {
+    variant = 'gridItem',
+    title = t('consumedApisCard.title'),
+    columns = getApiEntityColumns(t),
+    tableOptions = {},
+  } = props;
   const { entity } = useEntity();
   const { entities, loading, error } = useRelatedEntities(entity, {
     type: RELATION_CONSUMES_API,
@@ -49,7 +81,7 @@ export const ConsumedApisCard = ({ variant = 'gridItem' }: Props) => {
 
   if (loading) {
     return (
-      <InfoCard variant={variant} title="Consumed APIs">
+      <InfoCard variant={variant} title={title}>
         <Progress />
       </InfoCard>
     );
@@ -57,10 +89,10 @@ export const ConsumedApisCard = ({ variant = 'gridItem' }: Props) => {
 
   if (error || !entities) {
     return (
-      <InfoCard variant={variant} title="Consumed APIs">
+      <InfoCard variant={variant} title={title}>
         <WarningPanel
           severity="error"
-          title="Could not load APIs"
+          title={t('consumedApisCard.error.title')}
           message={<CodeSnippet text={`${error}`} language="text" />}
         />
       </InfoCard>
@@ -69,23 +101,62 @@ export const ConsumedApisCard = ({ variant = 'gridItem' }: Props) => {
 
   return (
     <EntityTable
-      title="Consumed APIs"
+      title={title}
       variant={variant}
       emptyContent={
         <div style={{ textAlign: 'center' }}>
           <Typography variant="body1">
-            This {entity.kind.toLocaleLowerCase('en-US')} does not consume any
-            APIs.
+            {t('consumedApisCard.emptyContent.title', {
+              entity: entity.kind.toLowerCase(),
+            })}
           </Typography>
           <Typography variant="body2">
-            <Link to="https://backstage.io/docs/features/software-catalog/descriptor-format#specconsumesapis-optional">
-              Learn how to change this.
+            <Link
+              to="https://backstage.io/docs/features/software-catalog/descriptor-format#specconsumesapis-optional"
+              externalLinkIcon
+            >
+              {t('apisCardHelpLinkTitle')}
             </Link>
           </Typography>
         </div>
       }
-      columns={apiEntityColumns}
+      columns={columns}
+      tableOptions={tableOptions}
       entities={entities as ApiEntity[]}
+    />
+  );
+}
+
+/**
+ * @public
+ */
+export const ConsumedApisCard = (
+  props: ConsumedApisCardProps | ConsumedApisCardLegacyProps,
+) => {
+  const { t } = useTranslationRef(apiDocsTranslationRef);
+  const { entity } = useEntity();
+
+  if (isLegacyProps(props)) {
+    return <ConsumedApisCardLegacy {...props} />;
+  }
+
+  const {
+    title = t('consumedApisCard.title'),
+    columnConfig = getApiEntityColumnConfig(t),
+  } = props;
+
+  return (
+    <EntityRelationCard
+      title={title}
+      relationType={RELATION_CONSUMES_API}
+      columnConfig={columnConfig}
+      emptyState={{
+        message: t('consumedApisCard.emptyContent.title', {
+          entity: entity.kind.toLowerCase(),
+        }),
+        helpLink:
+          'https://backstage.io/docs/features/software-catalog/descriptor-format#specconsumesapis-optional',
+      }}
     />
   );
 };

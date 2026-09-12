@@ -14,36 +14,57 @@
  * limitations under the License.
  */
 
-import React, { PropsWithChildren } from 'react';
-import { BackstageTheme } from '@backstage/theme';
-import { makeStyles, ThemeProvider } from '@material-ui/core';
+import { ReactNode } from 'react';
+import { makeStyles, Theme, ThemeProvider } from '@material-ui/core/styles';
+import classNames from 'classnames';
 
-const useStyles = makeStyles(() => ({
-  root: {
-    display: 'grid',
-    gridTemplateAreas:
-      "'pageHeader pageHeader pageHeader' 'pageSubheader pageSubheader pageSubheader' 'pageNav pageContent pageSidebar'",
-    gridTemplateRows: 'max-content auto 1fr',
-    gridTemplateColumns: 'auto 1fr auto',
-    height: '100vh',
-    overflowY: 'auto',
-  },
-}));
+export type PageClassKey = 'root';
+
+const useStyles = makeStyles(
+  theme => ({
+    root: {
+      display: 'grid',
+      gridTemplateAreas:
+        "'pageHeader pageHeader pageHeader' 'pageSubheader pageSubheader pageSubheader' 'pageNav pageContent pageSidebar'",
+      gridTemplateRows: 'max-content auto 1fr',
+      gridTemplateColumns: 'auto 1fr auto',
+      overflowY: 'auto',
+      height: '100vh',
+      [theme.breakpoints.down('xs')]: {
+        height: '100%',
+      },
+      '@media print': {
+        display: 'block',
+        height: 'auto',
+        overflowY: 'inherit',
+      },
+    },
+  }),
+  { name: 'BackstagePage' },
+);
 
 type Props = {
   themeId: string;
+  className?: string;
+  children?: ReactNode;
 };
 
-export const Page = ({ themeId, children }: PropsWithChildren<Props>) => {
+export function Page(props: Props) {
+  const { themeId, className, children } = props;
   const classes = useStyles();
   return (
     <ThemeProvider
-      theme={(baseTheme: BackstageTheme) => ({
+      theme={(baseTheme: Theme) => ({
         ...baseTheme,
         page: baseTheme.getPageTheme({ themeId }),
       })}
     >
-      <div className={classes.root}>{children}</div>
+      <main
+        className={classNames(classes.root, className)}
+        data-backstage-core-page=""
+      >
+        {children}
+      </main>
     </ThemeProvider>
   );
-};
+}

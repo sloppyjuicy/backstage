@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import OktaIcon from '@material-ui/icons/AcUnit';
 import { oktaAuthApiRef } from '@backstage/core-plugin-api';
 import { OAuth2 } from '../oauth2';
 import { OAuthApiCreateOptions } from '../types';
@@ -22,7 +21,7 @@ import { OAuthApiCreateOptions } from '../types';
 const DEFAULT_PROVIDER = {
   id: 'okta',
   title: 'Okta',
-  icon: OktaIcon,
+  icon: () => null,
 };
 
 const OKTA_OIDC_SCOPES: Set<String> = new Set([
@@ -37,15 +36,24 @@ const OKTA_OIDC_SCOPES: Set<String> = new Set([
 
 const OKTA_SCOPE_PREFIX: string = 'okta.';
 
-class OktaAuth {
-  static create({
-    discoveryApi,
-    environment = 'development',
-    provider = DEFAULT_PROVIDER,
-    oauthRequestApi,
-    defaultScopes = ['openid', 'email', 'profile', 'offline_access'],
-  }: OAuthApiCreateOptions): typeof oktaAuthApiRef.T {
+/**
+ * Implements the OAuth flow to Okta products.
+ *
+ * @public
+ */
+export default class OktaAuth {
+  static create(options: OAuthApiCreateOptions): typeof oktaAuthApiRef.T {
+    const {
+      configApi,
+      discoveryApi,
+      environment = 'development',
+      provider = DEFAULT_PROVIDER,
+      oauthRequestApi,
+      defaultScopes = ['openid', 'email', 'profile', 'offline_access'],
+    } = options;
+
     return OAuth2.create({
+      configApi,
       discoveryApi,
       oauthRequestApi,
       provider,
@@ -67,5 +75,3 @@ class OktaAuth {
     });
   }
 }
-
-export default OktaAuth;

@@ -19,7 +19,11 @@ import { Entity, EntityPolicy } from './entity';
 // Helper that requires that all of a set of policies can be successfully
 // applied
 class AllEntityPolicies implements EntityPolicy {
-  constructor(private readonly policies: EntityPolicy[]) {}
+  private readonly policies: EntityPolicy[];
+
+  constructor(policies: EntityPolicy[]) {
+    this.policies = policies;
+  }
 
   async enforce(entity: Entity): Promise<Entity> {
     let result = entity;
@@ -39,7 +43,11 @@ class AllEntityPolicies implements EntityPolicy {
 // Helper that requires that at least one of a set of policies can be
 // successfully applied
 class AnyEntityPolicy implements EntityPolicy {
-  constructor(private readonly policies: EntityPolicy[]) {}
+  private readonly policies: EntityPolicy[];
+
+  constructor(policies: EntityPolicy[]) {
+    this.policies = policies;
+  }
 
   async enforce(entity: Entity): Promise<Entity> {
     for (const policy of this.policies) {
@@ -52,11 +60,16 @@ class AnyEntityPolicy implements EntityPolicy {
   }
 }
 
+/**
+ * Provides helpers for enforcing a set of {@link EntityPolicy} in an `and`/`or` expression.
+ *
+ * @public
+ */
 export const EntityPolicies = {
-  allOf(policies: EntityPolicy[]) {
+  allOf(policies: EntityPolicy[]): EntityPolicy {
     return new AllEntityPolicies(policies);
   },
-  oneOf(policies: EntityPolicy[]) {
+  oneOf(policies: EntityPolicy[]): EntityPolicy {
     return new AnyEntityPolicy(policies);
   },
 };

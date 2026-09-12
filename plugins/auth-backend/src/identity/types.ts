@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+import {
+  BackstageUserIdentity,
+  TokenParams,
+} from '@backstage/plugin-auth-node';
+
 /** Represents any form of serializable JWK */
 export interface AnyJWK extends Record<string, string> {
   use: 'sig';
@@ -22,17 +27,6 @@ export interface AnyJWK extends Record<string, string> {
   kty: string;
 }
 
-/** Parameters used to issue new ID Tokens */
-export type TokenParams = {
-  /** The claims that will be embedded within the token */
-  claims: {
-    /** The token subject, i.e. User ID */
-    sub: string;
-    /** A list of entity references that the user claims ownership through */
-    ent?: string[];
-  };
-};
-
 /**
  * A TokenIssuer is able to issue verifiable ID Tokens on demand.
  */
@@ -40,7 +34,9 @@ export type TokenIssuer = {
   /**
    * Issues a new ID Token
    */
-  issueToken(params: TokenParams): Promise<string>;
+  issueToken(
+    params: TokenParams,
+  ): Promise<{ token: string; identity?: BackstageUserIdentity }>;
 
   /**
    * List all public keys that are currently being used to sign tokens, or have been used

@@ -14,296 +14,355 @@
  * limitations under the License.
  */
 
-import { JsonObject, JsonValue } from '@backstage/config';
-import { InputError } from '@backstage/errors';
-import fs from 'fs-extra';
-import * as Handlebars from 'handlebars';
-import { validate as validateJsonSchema } from 'jsonschema';
-import path from 'path';
-import { PassThrough } from 'stream';
-import * as winston from 'winston';
-import { Logger } from 'winston';
-import { parseRepoUrl } from '../actions/builtin/publish/util';
-import { TemplateActionRegistry } from '../actions/TemplateActionRegistry';
-import { isTruthy } from './helper';
-import { Task, TaskBroker } from './types';
+import { AuditorService, LoggerService } from '@backstage/backend-plugin-api';
+import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
+import { InputError, toError } from '@backstage/errors';
 import { ScmIntegrations } from '@backstage/integration';
+import { PermissionEvaluator } from '@backstage/plugin-permission-common';
+import {
+  TaskBroker,
+  TaskContext,
+  TemplateFilter,
+  TemplateGlobal,
+} from '@backstage/plugin-scaffolder-node';
+import PQueue from 'p-queue';
+import { TemplateActionRegistry } from '../actions/TemplateActionRegistry';
+import { NunjucksWorkflowRunner } from './NunjucksWorkflowRunner';
+import { WorkflowRunner } from './types';
+import { JsonObject } from '@backstage/types';
+import { Config } from '@backstage/config';
+import { collectTemplateCapabilities } from '../../util/templating';
 
-type Options = {
-  logger: Logger;
+const DEFAULT_TASK_PARAMETER_MAX_LENGTH = 256;
+const TASK_RECOVERY_INTERVAL_MS = 10_000;
+const CLAIM_RETRY_INITIAL_DELAY_MS = 1_000;
+const CLAIM_RETRY_MAX_DELAY_MS = 60_000;
+const CLAIM_RETRY_JITTER_FACTOR = 0.2;
+
+/**
+ * TaskWorkerOptions
+ */
+export type TaskWorkerOptions = {
   taskBroker: TaskBroker;
-  workingDirectory: string;
-  actionRegistry: TemplateActionRegistry;
-  integrations: ScmIntegrations;
+  runners: {
+    workflowRunner: WorkflowRunner;
+  };
+  concurrentTasksLimit: number;
+  permissions?: PermissionEvaluator;
+  logger?: LoggerService;
+  auditor?: AuditorService;
+  config?: Config;
+  gracefulShutdown?: boolean;
 };
 
+/**
+ * CreateWorkerOptions
+ */
+export type CreateWorkerOptions = {
+  taskBroker: TaskBroker;
+  actionRegistry: TemplateActionRegistry;
+  integrations: ScmIntegrations;
+  workingDirectory: string;
+  logger: LoggerService;
+  auditor?: AuditorService;
+  config?: Config;
+  additionalTemplateFilters?: Record<string, TemplateFilter>;
+  /**
+   * The number of tasks that can be executed at the same time by the worker
+   * @defaultValue 10
+   * @example
+   * ```
+   * {
+   *   concurrentTasksLimit: 1,
+   *   // OR
+   *   concurrentTasksLimit: Infinity
+   * }
+   * ```
+   */
+  concurrentTasksLimit?: number;
+  additionalTemplateGlobals?: Record<string, TemplateGlobal>;
+  permissions?: PermissionEvaluator;
+  gracefulShutdown?: boolean;
+  metrics: MetricsService;
+};
+
+/**
+ * TaskWorker
+ */
 export class TaskWorker {
-  private readonly handlebars: typeof Handlebars;
+  private taskQueue: PQueue;
+  private logger: LoggerService | undefined;
+  private auditor: AuditorService | undefined;
+  private parameterAuditTransform: ParameterAuditTransform;
+  private stopWorkers: boolean;
+  private workerLoops: Promise<void> | undefined;
+  private readonly workerAbortController = new AbortController();
 
-  constructor(private readonly options: Options) {
-    this.handlebars = Handlebars.create();
+  private readonly options: TaskWorkerOptions & {
+    parameterAuditTransform: ParameterAuditTransform;
+  };
 
-    // TODO(blam): this should be a public facing API but it's a little
-    // scary right now, so we're going to lock it off like the component API is
-    // in the frontend until we can work out a nice way to do it.
-    this.handlebars.registerHelper('parseRepoUrl', repoUrl => {
-      return JSON.stringify(parseRepoUrl(repoUrl, options.integrations));
+  private constructor(
+    options: TaskWorkerOptions & {
+      parameterAuditTransform: ParameterAuditTransform;
+    },
+  ) {
+    this.options = options;
+    this.stopWorkers = false;
+    this.logger = options.logger;
+    this.auditor = options.auditor;
+    this.taskQueue = new PQueue({
+      concurrency: options.concurrentTasksLimit,
+    });
+    this.parameterAuditTransform = options.parameterAuditTransform;
+  }
+
+  static async create(options: CreateWorkerOptions): Promise<TaskWorker> {
+    const {
+      taskBroker,
+      logger,
+      auditor,
+      config,
+      actionRegistry,
+      integrations,
+      workingDirectory,
+      additionalTemplateFilters,
+      concurrentTasksLimit = 10, // from 1 to Infinity
+      additionalTemplateGlobals,
+      permissions,
+      gracefulShutdown,
+      metrics,
+    } = options;
+
+    const workflowRunner = new NunjucksWorkflowRunner({
+      actionRegistry,
+      integrations,
+      logger,
+      auditor,
+      workingDirectory,
+      templateCapabilities: collectTemplateCapabilities({
+        filters: additionalTemplateFilters,
+        globals: additionalTemplateGlobals,
+      }),
+      permissions,
+      config,
+      metrics,
     });
 
-    this.handlebars.registerHelper('projectSlug', repoUrl => {
-      const { owner, repo } = parseRepoUrl(repoUrl, options.integrations);
-      return `${owner}/${repo}`;
+    return new TaskWorker({
+      taskBroker: taskBroker,
+      runners: { workflowRunner },
+      concurrentTasksLimit,
+      logger,
+      permissions,
+      auditor,
+      config,
+      gracefulShutdown,
+      parameterAuditTransform: createParameterTruncator(config),
     });
+  }
 
-    this.handlebars.registerHelper('json', obj => JSON.stringify(obj));
-
-    this.handlebars.registerHelper('not', value => !isTruthy(value));
-
-    this.handlebars.registerHelper('eq', (a, b) => a === b);
+  async recoverTasks() {
+    try {
+      await this.options.taskBroker.recoverTasks?.();
+    } catch (error) {
+      this.logger?.error('Failed to recover tasks', toError(error));
+    }
   }
 
   start() {
-    (async () => {
-      for (;;) {
-        const task = await this.options.taskBroker.claim();
-        await this.runOneTask(task);
-      }
-    })();
+    if (this.workerLoops) {
+      return;
+    }
+
+    this.workerLoops = Promise.all([
+      this.runTaskRecoveryLoop(),
+      this.runTaskClaimLoop(),
+    ])
+      .then(() => undefined)
+      .catch(error => {
+        this.logger?.error(
+          'Unexpected task worker loop failure',
+          toError(error),
+        );
+      });
   }
 
-  async runOneTask(task: Task) {
-    let workspacePath: string | undefined = undefined;
-    try {
-      const { actionRegistry } = this.options;
+  async stop() {
+    this.stopWorkers = true;
+    this.workerAbortController.abort();
+    if (this.options?.gracefulShutdown) {
+      await this.workerLoops;
+      await this.taskQueue.onIdle();
+    }
+  }
 
-      workspacePath = path.join(
-        this.options.workingDirectory,
-        await task.getWorkspaceName(),
-      );
-      await fs.ensureDir(workspacePath);
-      await task.emitLog(
-        `Starting up task with ${task.spec.steps.length} steps`,
-      );
-
-      const templateCtx: {
-        parameters: JsonObject;
-        steps: {
-          [stepName: string]: { output: { [outputName: string]: JsonValue } };
-        };
-      } = { parameters: task.spec.values, steps: {} };
-
-      for (const step of task.spec.steps) {
-        const metadata = { stepId: step.id };
-        try {
-          const taskLogger = winston.createLogger({
-            level: process.env.LOG_LEVEL || 'info',
-            format: winston.format.combine(
-              winston.format.colorize(),
-              winston.format.timestamp(),
-              winston.format.simple(),
-            ),
-            defaultMeta: {},
-          });
-
-          const stream = new PassThrough();
-          stream.on('data', async data => {
-            const message = data.toString().trim();
-            if (message?.length > 1) {
-              await task.emitLog(message, metadata);
-            }
-          });
-
-          taskLogger.add(new winston.transports.Stream({ stream }));
-
-          if (step.if !== undefined) {
-            // Support passing values like false to disable steps
-            let skip = !step.if;
-
-            // Evaluate strings as handlebar templates
-            if (typeof step.if === 'string') {
-              const condition = JSON.parse(
-                JSON.stringify(step.if),
-                (_key, value) => {
-                  if (typeof value === 'string') {
-                    const templated = this.handlebars.compile(value, {
-                      noEscape: true,
-                      data: false,
-                      preventIndent: true,
-                    })(templateCtx);
-
-                    // If it's just an empty string, treat it as undefined
-                    if (templated === '') {
-                      return undefined;
-                    }
-
-                    try {
-                      return JSON.parse(templated);
-                    } catch {
-                      return templated;
-                    }
-                  }
-
-                  return value;
-                },
-              );
-
-              skip = !isTruthy(condition);
-            }
-
-            if (skip) {
-              await task.emitLog(`Skipped step ${step.name}`, {
-                ...metadata,
-                status: 'skipped',
-              });
-              continue;
-            }
-          }
-
-          await task.emitLog(`Beginning step ${step.name}`, {
-            ...metadata,
-            status: 'processing',
-          });
-
-          const action = actionRegistry.get(step.action);
-          if (!action) {
-            throw new Error(`Action '${step.action}' does not exist`);
-          }
-
-          const input =
-            step.input &&
-            JSON.parse(JSON.stringify(step.input), (_key, value) => {
-              if (typeof value === 'string') {
-                const templated = this.handlebars.compile(value, {
-                  noEscape: true,
-                  data: false,
-                  preventIndent: true,
-                })(templateCtx);
-
-                // If it smells like a JSON object then give it a parse as an object and if it fails return the string
-                if (
-                  (templated.startsWith('"') && templated.endsWith('"')) ||
-                  (templated.startsWith('{') && templated.endsWith('}')) ||
-                  (templated.startsWith('[') && templated.endsWith(']'))
-                ) {
-                  try {
-                    // Don't recursively JSON parse the values of this string.
-                    // Shouldn't need to, don't want to encourage the use of returning handlebars from somewhere else
-                    return JSON.parse(templated);
-                  } catch {
-                    return templated;
-                  }
-                }
-                return templated;
-              }
-
-              return value;
-            });
-
-          if (action.schema?.input) {
-            const validateResult = validateJsonSchema(
-              input,
-              action.schema.input,
-            );
-            if (!validateResult.valid) {
-              const errors = validateResult.errors.join(', ');
-              throw new InputError(
-                `Invalid input passed to action ${action.id}, ${errors}`,
-              );
-            }
-          }
-
-          const stepOutputs: { [name: string]: JsonValue } = {};
-
-          // Keep track of all tmp dirs that are created by the action so we can remove them after
-          const tmpDirs = new Array<string>();
-
-          this.options.logger.debug(`Running ${action.id} with input`, {
-            input: JSON.stringify(input, null, 2),
-          });
-
-          await action.handler({
-            baseUrl: task.spec.baseUrl,
-            logger: taskLogger,
-            logStream: stream,
-            input,
-            token: task.secrets?.token,
-            workspacePath,
-            async createTemporaryDirectory() {
-              const tmpDir = await fs.mkdtemp(
-                `${workspacePath}_step-${step.id}-`,
-              );
-              tmpDirs.push(tmpDir);
-              return tmpDir;
-            },
-            output(name: string, value: JsonValue) {
-              stepOutputs[name] = value;
-            },
-          });
-
-          // Remove all temporary directories that were created when executing the action
-          for (const tmpDir of tmpDirs) {
-            await fs.remove(tmpDir);
-          }
-
-          templateCtx.steps[step.id] = { output: stepOutputs };
-
-          await task.emitLog(`Finished step ${step.name}`, {
-            ...metadata,
-            status: 'completed',
-          });
-        } catch (error) {
-          await task.emitLog(String(error.stack), {
-            ...metadata,
-            status: 'failed',
-          });
-          throw error;
-        }
-      }
-
-      const output = JSON.parse(
-        JSON.stringify(task.spec.output),
-        (_key, value) => {
-          if (typeof value === 'string') {
-            const templated = this.handlebars.compile(value, {
-              noEscape: true,
-              data: false,
-              preventIndent: true,
-            })(templateCtx);
-
-            // If it's just an empty string, treat it as undefined
-            if (templated === '') {
-              return undefined;
-            }
-
-            // If it smells like a JSON object then give it a parse as an object and if it fails return the string
-            if (
-              (templated.startsWith('"') && templated.endsWith('"')) ||
-              (templated.startsWith('{') && templated.endsWith('}')) ||
-              (templated.startsWith('[') && templated.endsWith(']'))
-            ) {
-              try {
-                // Don't recursively JSON parse the values of this string.
-                // Shouldn't need to, don't want to encourage the use of returning handlebars from somewhere else
-                return JSON.parse(templated);
-              } catch {
-                return templated;
-              }
-            }
-            return templated;
-          }
-          return value;
-        },
-      );
-
-      await task.complete('completed', { output });
-    } catch (error) {
-      await task.complete('failed', {
-        error: { name: error.name, message: error.message },
-      });
-    } finally {
-      if (workspacePath) {
-        await fs.remove(workspacePath);
+  private async runTaskRecoveryLoop() {
+    while (!this.stopWorkers) {
+      await this.wait(TASK_RECOVERY_INTERVAL_MS);
+      if (!this.stopWorkers) {
+        await this.recoverTasks();
       }
     }
   }
+
+  private async runTaskClaimLoop() {
+    let retryDelayMs = CLAIM_RETRY_INITIAL_DELAY_MS;
+
+    while (!this.stopWorkers) {
+      await this.onReadyToClaimTask();
+      if (this.stopWorkers) {
+        break;
+      }
+
+      try {
+        const task = await this.options.taskBroker.claim({
+          signal: this.workerAbortController.signal,
+        });
+        retryDelayMs = CLAIM_RETRY_INITIAL_DELAY_MS;
+        void this.taskQueue
+          .add(() => this.runOneTask(task))
+          .catch(error => {
+            this.logger?.error(
+              `Unexpected error while executing task ${task.taskId}`,
+              toError(error),
+            );
+          });
+      } catch (error) {
+        if (this.stopWorkers) {
+          break;
+        }
+        const jitter = retryDelayMs * CLAIM_RETRY_JITTER_FACTOR;
+        const actualDelayMs = Math.min(
+          CLAIM_RETRY_MAX_DELAY_MS,
+          Math.round(retryDelayMs - jitter + Math.random() * jitter * 2),
+        );
+        this.logger?.error(
+          `Failed to claim task, retrying in ${actualDelayMs}ms`,
+          toError(error),
+        );
+        await this.wait(actualDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, CLAIM_RETRY_MAX_DELAY_MS);
+      }
+    }
+  }
+
+  private wait(delayMs: number) {
+    return new Promise<void>(resolve => {
+      const signal = this.workerAbortController.signal;
+      const timeout = setTimeout(onDone, delayMs);
+
+      function onDone() {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', onDone);
+        resolve();
+      }
+
+      timeout.unref();
+      signal.addEventListener('abort', onDone, { once: true });
+      if (signal.aborted) {
+        onDone();
+      }
+    });
+  }
+
+  protected onReadyToClaimTask(): Promise<void> {
+    if (this.taskQueue.pending < this.options.concurrentTasksLimit) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      // "next" event emits when a task completes
+      // https://github.com/sindresorhus/p-queue#next
+      this.taskQueue.once('next', () => {
+        resolve();
+      });
+    });
+  }
+
+  async runOneTask(task: TaskContext) {
+    const auditorEvent = await this.auditor?.createEvent({
+      eventId: 'task',
+      severityLevel: 'medium',
+      meta: {
+        actionType: 'execution',
+        createdBy: task.createdBy,
+        taskId: task.taskId,
+        taskParameters: this.parameterAuditTransform(task.spec.parameters),
+        templateRef: task.spec.templateInfo?.entityRef,
+      },
+    });
+
+    try {
+      if (task.spec.apiVersion !== 'scaffolder.backstage.io/v1beta3') {
+        throw new Error(
+          `Unsupported Template apiVersion ${task.spec.apiVersion}`,
+        );
+      }
+
+      const { output } = await this.options.runners.workflowRunner.execute(
+        task,
+      );
+
+      await task.complete('completed', { output });
+      await auditorEvent?.success();
+    } catch (error) {
+      const err = toError(error);
+      await auditorEvent?.fail({
+        error: err,
+      });
+      await task.complete('failed', {
+        error: { name: err.name, message: err.message },
+      });
+    }
+  }
+}
+
+type ParameterAuditTransform = (parameters: JsonObject) => JsonObject;
+
+/**
+ * Truncates task parameters for audit logging using the configured max length.
+ * @internal
+ */
+export function createParameterTruncator(
+  config?: Config,
+): ParameterAuditTransform {
+  const maxLength =
+    config?.getOptionalNumber('scaffolder.auditor.taskParameterMaxLength') ??
+    DEFAULT_TASK_PARAMETER_MAX_LENGTH;
+
+  if (!Number.isSafeInteger(maxLength) || maxLength < -1) {
+    throw new InputError(
+      `Invalid configuration for 'scaffolder.auditor.taskParameterMaxLength', got ${maxLength}. Must be a positive integer or -1 to disable truncation.`,
+    );
+  }
+
+  if (maxLength === -1) {
+    return (parameters: JsonObject) => parameters;
+  }
+
+  return (parameters: JsonObject) => {
+    function truncate(value: unknown): unknown {
+      if (typeof value === 'string') {
+        if (value.length > maxLength) {
+          return value.slice(0, maxLength).concat('...<truncated>');
+        }
+        return value;
+      }
+      if (Array.isArray(value)) {
+        return value.map(truncate);
+      }
+      if (value && typeof value === 'object') {
+        const result: Record<string, unknown> = {};
+        for (const k in value as object) {
+          if (Object.hasOwn(value, k)) {
+            result[k] = truncate((value as any)[k]);
+          }
+        }
+        return result;
+      }
+      return value;
+    }
+
+    return truncate(parameters) as JsonObject;
+  };
 }

@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
-import {
-  Box,
-  Checkbox,
-  FormControlLabel,
-  FormHelperText,
-  StepLabel,
-  TextField,
-  Typography,
-} from '@material-ui/core';
-import React from 'react';
+import { TranslationFunction } from '@backstage/core-plugin-api/alpha';
+import { catalogImportTranslationRef } from '@backstage/plugin-catalog-import/alpha';
+import Box from '@material-ui/core/Box';
+import Checkbox from '@material-ui/core/Checkbox';
+import FormControlLabel from '@material-ui/core/FormControlLabel';
+import FormHelperText from '@material-ui/core/FormHelperText';
+import StepLabel from '@material-ui/core/StepLabel';
+import TextField from '@material-ui/core/TextField';
+import Typography from '@material-ui/core/Typography';
+import { ReactElement } from 'react';
 import { BackButton } from '../Buttons';
+import { asInputRef } from '../helpers';
 import { StepFinishImportLocation } from '../StepFinishImportLocation';
 import { StepInitAnalyzeUrl } from '../StepInitAnalyzeUrl';
 import {
@@ -33,64 +34,48 @@ import {
 } from '../StepPrepareCreatePullRequest';
 import { StepPrepareSelectLocations } from '../StepPrepareSelectLocations';
 import { StepReviewLocation } from '../StepReviewLocation';
+import { StepperApis } from '../types';
 import { ImportFlows, ImportState } from '../useImportState';
-import { ConfigApi } from '@backstage/core-plugin-api';
-
-export type StepperProviderOpts = {
-  pullRequest?: {
-    disable?: boolean;
-    preparePullRequest?: (apis: StepperApis) => {
-      title?: string;
-      body?: string;
-    };
-  };
-};
-
-type StepperApis = {
-  configApi: ConfigApi;
-};
 
 export type StepConfiguration = {
-  stepLabel: React.ReactElement;
-  content: React.ReactElement;
+  stepLabel: ReactElement;
+  content: ReactElement;
 };
 
-export type StepperProvider = {
+/**
+ * Defines the details of the stepper.
+ *
+ * @public
+ */
+export interface StepperProvider {
   analyze: (
     s: Extract<ImportState, { activeState: 'analyze' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: {
+      apis: StepperApis;
+      t: TranslationFunction<typeof catalogImportTranslationRef.T>;
+    },
   ) => StepConfiguration;
   prepare: (
     s: Extract<ImportState, { activeState: 'prepare' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: {
+      apis: StepperApis;
+      t: TranslationFunction<typeof catalogImportTranslationRef.T>;
+    },
   ) => StepConfiguration;
   review: (
     s: Extract<ImportState, { activeState: 'review' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: {
+      apis: StepperApis;
+      t: TranslationFunction<typeof catalogImportTranslationRef.T>;
+    },
   ) => StepConfiguration;
   finish: (
     s: Extract<ImportState, { activeState: 'finish' }>,
-    opts: { apis: StepperApis; opts?: StepperProviderOpts },
+    opts: {
+      apis: StepperApis;
+      t: TranslationFunction<typeof catalogImportTranslationRef.T>;
+    },
   ) => StepConfiguration;
-};
-
-function defaultPreparePullRequest(
-  apis: StepperApis,
-  { title, body }: { title?: string; body?: string } = {},
-) {
-  const appTitle = apis.configApi.getOptionalString('app.title') ?? 'Backstage';
-  const appBaseUrl = apis.configApi.getString('app.baseUrl');
-
-  return {
-    title: title ?? 'Add catalog-info.yaml config file',
-    body:
-      body ??
-      `This pull request adds a **Backstage entity metadata file** \
-to this repository so that the component can be added to the \
-[${appTitle} software catalog](${appBaseUrl}).\n\nAfter this pull request is merged, \
-the component will become available.\n\nFor more information, read an \
-[overview of the Backstage software catalog](https://backstage.io/docs/features/software-catalog/software-catalog-overview).`,
-  };
 }
 
 /**
@@ -99,12 +84,15 @@ the component will become available.\n\nFor more information, read an \
  * Override this function to customize the import flow. Each flow should at
  * least override the prepare operation.
  *
- * @param flow the name of the active flow
- * @param defaults the default steps
+ * @param flow - the name of the active flow
+ * @param defaults - the default steps
+ * @param t - the translation function
+ * @public
  */
 export function defaultGenerateStepper(
   flow: ImportFlows,
   defaults: StepperProvider,
+  t: TranslationFunction<typeof catalogImportTranslationRef.T>,
 ): StepperProvider {
   switch (flow) {
     // the prepare step is skipped but the label of the step is updated
@@ -116,11 +104,11 @@ export function defaultGenerateStepper(
             <StepLabel
               optional={
                 <Typography variant="caption">
-                  Discovered Locations: 1
+                  {t('importStepper.singleLocation.description')}
                 </Typography>
               }
             >
-              Select Locations
+              {t('importStepper.singleLocation.title')}
             </StepLabel>
           ),
           content: <></>,
@@ -141,11 +129,13 @@ export function defaultGenerateStepper(
               <StepLabel
                 optional={
                   <Typography variant="caption">
-                    Discovered Locations: {state.analyzeResult.locations.length}
+                    {t('importStepper.multipleLocations.description', {
+                      length: state.analyzeResult.locations.length,
+                    })}
                   </Typography>
                 }
               >
-                Select Locations
+                {t('importStepper.multipleLocations.title')}
               </StepLabel>
             ),
             content: (
@@ -168,89 +158,112 @@ export function defaultGenerateStepper(
             return defaults.prepare(state, opts);
           }
 
-          const preparePullRequest =
-            opts?.opts?.pullRequest?.preparePullRequest;
-          const { title, body } = defaultPreparePullRequest(
-            opts.apis,
-            preparePullRequest ? preparePullRequest(opts.apis) : {},
-          );
-
           return {
-            stepLabel: <StepLabel>Create Pull Request</StepLabel>,
+            stepLabel: (
+              <StepLabel>{t('importStepper.noLocation.title')}</StepLabel>
+            ),
             content: (
               <StepPrepareCreatePullRequest
                 analyzeResult={state.analyzeResult}
                 onPrepare={state.onPrepare}
                 onGoBack={state.onGoBack}
-                defaultTitle={title}
-                defaultBody={body}
                 renderFormFields={({
                   values,
-                  control,
-                  errors,
+                  setValue,
+                  formState,
                   groupsLoading,
                   groups,
                   register,
                 }) => (
                   <>
                     <Box marginTop={2}>
-                      <Typography variant="h6">Pull Request Details</Typography>
+                      <Typography variant="h6">
+                        {t('importStepper.noLocation.createPr.detailsTitle')}
+                      </Typography>
                     </Box>
 
                     <TextField
-                      name="title"
-                      label="Pull Request Title"
-                      placeholder="Add Backstage catalog entity descriptor files"
+                      {...asInputRef(
+                        register('title', {
+                          required: true,
+                        }),
+                      )}
+                      label={t('importStepper.noLocation.createPr.titleLabel')}
+                      placeholder={t(
+                        'importStepper.noLocation.createPr.titlePlaceholder',
+                      )}
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.title)}
+                      error={Boolean(formState.errors.title)}
                       required
                     />
 
                     <TextField
-                      name="body"
-                      label="Pull Request Body"
-                      placeholder="A describing text with Markdown support"
+                      {...asInputRef(
+                        register('body', {
+                          required: true,
+                        }),
+                      )}
+                      label={t('importStepper.noLocation.createPr.bodyLabel')}
+                      placeholder={t(
+                        'importStepper.noLocation.createPr.bodyPlaceholder',
+                      )}
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.body)}
+                      error={Boolean(formState.errors.body)}
                       multiline
                       required
                     />
 
                     <Box marginTop={2}>
-                      <Typography variant="h6">Entity Configuration</Typography>
+                      <Typography variant="h6">
+                        {t(
+                          'importStepper.noLocation.createPr.configurationTitle',
+                        )}
+                      </Typography>
                     </Box>
 
                     <TextField
-                      name="componentName"
-                      label="Name of the created component"
-                      placeholder="my-component"
+                      {...asInputRef(
+                        register('componentName', { required: true }),
+                      )}
+                      label={t(
+                        'importStepper.noLocation.createPr.componentNameLabel',
+                      )}
+                      placeholder={t(
+                        'importStepper.noLocation.createPr.componentNamePlaceholder',
+                      )}
                       margin="normal"
                       variant="outlined"
                       fullWidth
-                      inputRef={register({ required: true })}
-                      error={Boolean(errors.componentName)}
+                      error={Boolean(formState.errors.componentName)}
                       required
                     />
 
                     {!values.useCodeowners && (
                       <AutocompleteTextField
                         name="owner"
-                        control={control}
-                        errors={errors}
+                        errors={formState.errors}
                         options={groups || []}
                         loading={groupsLoading}
-                        loadingText="Loading groups…"
-                        helperText="Select an owner from the list or enter a reference to a Group or a User"
-                        errorHelperText="required value"
+                        loadingText={t(
+                          'importStepper.noLocation.createPr.ownerLoadingText',
+                        )}
+                        helperText={t(
+                          'importStepper.noLocation.createPr.ownerHelperText',
+                        )}
+                        errorHelperText={t(
+                          'importStepper.noLocation.createPr.ownerErrorHelperText',
+                        )}
                         textFieldProps={{
-                          label: 'Entity Owner',
-                          placeholder: 'my-group',
+                          label: t(
+                            'importStepper.noLocation.createPr.ownerLabel',
+                          ),
+                          placeholder: t(
+                            'importStepper.noLocation.createPr.ownerPlaceholder',
+                          ),
                         }}
                         rules={{ required: true }}
                         required
@@ -260,11 +273,10 @@ export function defaultGenerateStepper(
                     <FormControlLabel
                       control={
                         <Checkbox
-                          name="useCodeowners"
-                          inputRef={register}
+                          {...asInputRef(register('useCodeowners'))}
                           onChange={(_, value) => {
                             if (value) {
-                              control.setValue('owner', '');
+                              setValue('owner', '');
                             }
                           }}
                         />
@@ -276,8 +288,9 @@ export function defaultGenerateStepper(
                       }
                     />
                     <FormHelperText>
-                      WARNING: This may fail if no CODEOWNERS file is found at
-                      the target location.
+                      {t(
+                        'importStepper.noLocation.createPr.codeownersHelperText',
+                      )}
                     </FormHelperText>
                   </>
                 )}
@@ -293,29 +306,35 @@ export function defaultGenerateStepper(
 }
 
 export const defaultStepper: StepperProvider = {
-  analyze: (state, { opts }) => ({
-    stepLabel: <StepLabel>Select URL</StepLabel>,
+  analyze: (state, { apis, t }) => ({
+    stepLabel: <StepLabel>{t('importStepper.analyze.title')}</StepLabel>,
     content: (
       <StepInitAnalyzeUrl
         key="analyze"
         analysisUrl={state.analysisUrl}
         onAnalysis={state.onAnalysis}
-        disablePullRequest={opts?.pullRequest?.disable}
+        disablePullRequest={!apis.catalogImportApi.preparePullRequest}
       />
     ),
   }),
 
-  prepare: state => ({
+  prepare: (state, { t }) => ({
     stepLabel: (
-      <StepLabel optional={<Typography variant="caption">Optional</Typography>}>
-        Import Actions
+      <StepLabel
+        optional={
+          <Typography variant="caption">
+            {t('importStepper.prepare.description')}
+          </Typography>
+        }
+      >
+        {t('importStepper.prepare.title')}
       </StepLabel>
     ),
     content: <BackButton onClick={state.onGoBack} />,
   }),
 
-  review: state => ({
-    stepLabel: <StepLabel>Review</StepLabel>,
+  review: (state, { t }) => ({
+    stepLabel: <StepLabel>{t('importStepper.review.title')}</StepLabel>,
     content: (
       <StepReviewLocation
         prepareResult={state.prepareResult}
@@ -325,8 +344,8 @@ export const defaultStepper: StepperProvider = {
     ),
   }),
 
-  finish: state => ({
-    stepLabel: <StepLabel>Finish</StepLabel>,
+  finish: (state, { t }) => ({
+    stepLabel: <StepLabel>{t('importStepper.finish.title')}</StepLabel>,
     content: (
       <StepFinishImportLocation
         prepareResult={state.prepareResult}

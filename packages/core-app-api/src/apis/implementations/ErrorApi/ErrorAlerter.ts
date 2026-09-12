@@ -13,19 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ErrorApi, ErrorContext, AlertApi } from '@backstage/core-plugin-api';
+import {
+  ErrorApi,
+  ErrorApiError,
+  ErrorApiErrorContext,
+  AlertApi,
+} from '@backstage/core-plugin-api';
 
 /**
  * Decorates an ErrorApi by also forwarding error messages
  * to the alertApi with an 'error' severity.
+ *
+ * @public
  */
 export class ErrorAlerter implements ErrorApi {
-  constructor(
-    private readonly alertApi: AlertApi,
-    private readonly errorApi: ErrorApi,
-  ) {}
+  private readonly alertApi: AlertApi;
+  private readonly errorApi: ErrorApi;
 
-  post(error: Error, context?: ErrorContext) {
+  constructor(alertApi: AlertApi, errorApi: ErrorApi) {
+    this.alertApi = alertApi;
+    this.errorApi = errorApi;
+  }
+
+  post(error: ErrorApiError, context?: ErrorApiErrorContext) {
     if (!context?.hidden) {
       this.alertApi.post({ message: error.message, severity: 'error' });
     }

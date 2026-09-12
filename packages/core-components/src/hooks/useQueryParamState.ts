@@ -18,7 +18,7 @@ import { isEqual } from 'lodash';
 import qs from 'qs';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useDebounce } from 'react-use';
+import { useDebouncedEffect } from '@react-hookz/web';
 
 function stringify(queryParams: any): string {
   // Even though these setting don't look nice (e.g. escaped brackets), we should keep
@@ -58,7 +58,7 @@ type SetQueryParams<T> = (params: T) => void;
 
 export function useQueryParamState<T>(
   stateName: string,
-  /** @deprecated Don't configure a custom debouceTime */
+  /** @deprecated Don't configure a custom debounceTime */
   debounceTime: number = 250,
 ): [T | undefined, SetQueryParams<T>] {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -75,7 +75,7 @@ export function useQueryParamState<T>(
     );
   }, [searchParamsString, setQueryParamState, stateName]);
 
-  useDebounce(
+  useDebouncedEffect(
     () => {
       const queryString = joinQueryString(
         searchParamsString,
@@ -87,8 +87,8 @@ export function useQueryParamState<T>(
         setSearchParams(queryString, { replace: true });
       }
     },
-    debounceTime,
     [setSearchParams, queryParamState, searchParamsString, stateName],
+    debounceTime,
   );
 
   return [queryParamState, setQueryParamState];

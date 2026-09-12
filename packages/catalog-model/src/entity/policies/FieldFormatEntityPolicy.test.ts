@@ -28,7 +28,6 @@ describe('FieldFormatEntityPolicy', () => {
       metadata:
         uid: e01199ab-08cc-44c2-8e19-5c29ded82521
         etag: lsndfkjsndfkjnsdfkjnsd==
-        generation: 13
         name: my-component-yay
         namespace: the-namespace
         labels:
@@ -64,11 +63,6 @@ describe('FieldFormatEntityPolicy', () => {
     await expect(policy.enforce(data)).rejects.toThrow(/kind/);
     data.kind = 'a#b';
     await expect(policy.enforce(data)).rejects.toThrow(/kind/);
-  });
-
-  it('handles missing metadata gracefully', async () => {
-    delete data.medatata;
-    await expect(policy.enforce(data)).resolves.toBe(data);
   });
 
   it('handles missing spec gracefully', async () => {
@@ -203,7 +197,7 @@ describe('FieldFormatEntityPolicy', () => {
     },
   );
 
-  it.each([[123], [{}], [[]], ['abc xyz']])(
+  it.each([[123], [{}], [[]]])(
     'rejects bad link icon value %s',
     async (icon: unknown) => {
       data.metadata.links = [{ url: 'http://foo', icon }];
@@ -214,10 +208,8 @@ describe('FieldFormatEntityPolicy', () => {
   it('rejects a single bad link icon value', async () => {
     data.metadata.links = [
       { url: 'http://foo', icon: 'good' },
-      { url: 'http://foo', icon: 'not good' },
+      { url: 'http://foo', icon: 123 },
     ];
-    await expect(policy.enforce(data)).rejects.toThrow(
-      /links.1.icon.*"not good"/i,
-    );
+    await expect(policy.enforce(data)).rejects.toThrow(/links.1.icon.*"123"/i);
   });
 });

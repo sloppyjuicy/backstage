@@ -15,30 +15,26 @@
  */
 
 import { ConfigReader } from '@backstage/config';
-import { readMicrosoftGraphConfig } from './config';
+import { readMicrosoftGraphConfig, readProviderConfigs } from './config';
 
 describe('readMicrosoftGraphConfig', () => {
   it('applies all of the defaults', () => {
     const config = {
       providers: [
         {
+          id: 'target',
           target: 'target',
           tenantId: 'tenantId',
-          clientId: 'clientId',
-          clientSecret: 'clientSecret',
         },
       ],
     };
     const actual = readMicrosoftGraphConfig(new ConfigReader(config));
     const expected = [
       {
+        id: 'target',
         target: 'target',
         tenantId: 'tenantId',
-        clientId: 'clientId',
-        clientSecret: 'clientSecret',
-        authority: 'https://login.microsoftonline.com',
         userFilter: undefined,
-        groupFilter: undefined,
       },
     ];
     expect(actual).toEqual(expected);
@@ -48,12 +44,17 @@ describe('readMicrosoftGraphConfig', () => {
     const config = {
       providers: [
         {
+          id: 'target',
           target: 'target',
           tenantId: 'tenantId',
           clientId: 'clientId',
           clientSecret: 'clientSecret',
           authority: 'https://login.example.com/',
-          userFilter: 'accountEnabled eq true',
+          userExpand: 'manager',
+          userFilter: "userType eq 'member'",
+          userSelect: ['id', 'displayName', 'department'],
+          groupExpand: 'member',
+          groupSelect: ['id', 'displayName', 'description'],
           groupFilter: 'securityEnabled eq false',
         },
       ],
@@ -61,15 +62,227 @@ describe('readMicrosoftGraphConfig', () => {
     const actual = readMicrosoftGraphConfig(new ConfigReader(config));
     const expected = [
       {
+        id: 'target',
         target: 'target',
         tenantId: 'tenantId',
         clientId: 'clientId',
         clientSecret: 'clientSecret',
-        authority: 'https://login.example.com',
-        userFilter: 'accountEnabled eq true',
+        authority: 'https://login.example.com/',
+        userExpand: 'manager',
+        userFilter: "userType eq 'member'",
+        userSelect: ['id', 'displayName', 'department'],
+        groupExpand: 'member',
+        groupSelect: ['id', 'displayName', 'description'],
         groupFilter: 'securityEnabled eq false',
       },
     ];
     expect(actual).toEqual(expected);
+  });
+
+  it('should fail if clientId is set without clientSecret', () => {
+    const config = {
+      providers: [
+        {
+          tenantId: 'tenantId',
+          clientId: 'clientId',
+        },
+      ],
+    };
+    expect(() => readMicrosoftGraphConfig(new ConfigReader(config))).toThrow();
+  });
+
+  it('should fail if clientSecret is set without clientId', () => {
+    const config = {
+      providers: [
+        {
+          tenantId: 'tenantId',
+          clientSecret: 'clientId',
+        },
+      ],
+    };
+    expect(() => readMicrosoftGraphConfig(new ConfigReader(config))).toThrow();
+  });
+});
+
+describe('readProviderConfigs', () => {
+  it('applies all of the defaults', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+            },
+          },
+        },
+      },
+    };
+    const actual = readProviderConfigs(new ConfigReader(config));
+    const expected = [
+      {
+        id: 'customProviderId',
+        target: 'https://graph.microsoft.com/v1.0',
+        tenantId: 'tenantId',
+        userFilter: undefined,
+        userPath: 'users',
+        groupPath: 'groups',
+      },
+    ];
+    expect(actual).toEqual(expected);
+  });
+
+  it('reads all the values', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              target: 'target',
+              tenantId: 'tenantId',
+              clientId: 'clientId',
+              clientSecret: 'clientSecret',
+              authority: 'https://login.example.com/',
+              queryMode: 'advanced',
+              user: {
+                expand: 'manager',
+                filter: "userType eq 'member'",
+                select: ['id', 'displayName', 'department'],
+                path: '/groups/{groupId}/members',
+              },
+              group: {
+                expand: 'member',
+                filter: 'securityEnabled eq false',
+                select: ['id', 'displayName', 'description'],
+                includeSubGroups: true,
+                path: '/groups/{groupId}/members',
+              },
+              schedule: {
+                frequency: 'PT30M',
+                timeout: {
+                  minutes: 3,
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const actual = readProviderConfigs(new ConfigReader(config));
+    const expected = [
+      {
+        id: 'customProviderId',
+        target: 'target',
+        tenantId: 'tenantId',
+        clientId: 'clientId',
+        clientSecret: 'clientSecret',
+        authority: 'https://login.example.com/',
+        queryMode: 'advanced',
+        userExpand: 'manager',
+        userFilter: "userType eq 'member'",
+        userSelect: ['id', 'displayName', 'department'],
+        userPath: '/groups/{groupId}/members',
+        groupExpand: 'member',
+        groupSelect: ['id', 'displayName', 'description'],
+        groupFilter: 'securityEnabled eq false',
+        groupPath: '/groups/{groupId}/members',
+        groupIncludeSubGroups: true,
+        schedule: {
+          frequency: { minutes: 30 },
+          timeout: {
+            minutes: 3,
+          },
+        },
+      },
+    ];
+    expect(actual).toEqual(expected);
+  });
+
+  it('should reject userFilter combined with userGroupMemberFilter', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+              user: { filter: "userType eq 'member'" },
+              userGroupMember: { filter: "displayName eq 'Team'" },
+            },
+          },
+        },
+      },
+    };
+    expect(() => readProviderConfigs(new ConfigReader(config))).toThrow(
+      'mutually exclusive',
+    );
+  });
+
+  it('should reject userFilter combined with userGroupMemberSearch', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+              user: { filter: "userType eq 'member'" },
+              userGroupMember: { search: '"displayName:team"' },
+            },
+          },
+        },
+      },
+    };
+    expect(() => readProviderConfigs(new ConfigReader(config))).toThrow(
+      'userGroupMemberSearch cannot be specified',
+    );
+  });
+
+  it('should reject userFilter combined with userGroupMemberPath', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+              user: { filter: "userType eq 'member'" },
+              userGroupMember: { path: 'some-path' },
+            },
+          },
+        },
+      },
+    };
+    expect(() => readProviderConfigs(new ConfigReader(config))).toThrow(
+      'userGroupMemberPath cannot be specified',
+    );
+  });
+
+  it('should fail if clientId is set without clientSecret', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+              clientId: 'id',
+            },
+          },
+        },
+      },
+    };
+    expect(() => readProviderConfigs(new ConfigReader(config))).toThrow();
+  });
+
+  it('should fail if clientSecret is set without clientId', () => {
+    const config = {
+      catalog: {
+        providers: {
+          microsoftGraphOrg: {
+            customProviderId: {
+              tenantId: 'tenantId',
+              clientSecret: 'clientSecret',
+            },
+          },
+        },
+      },
+    };
+    expect(() => readProviderConfigs(new ConfigReader(config))).toThrow();
   });
 });

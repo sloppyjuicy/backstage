@@ -14,4 +14,10 @@
  * limitations under the License.
  */
 
-export * from './service/router';
+/**
+ * The Backstage backend plugin that provides your backstage app with search
+ *
+ * @packageDocumentation
+ */
+
+export { default } from './plugin';

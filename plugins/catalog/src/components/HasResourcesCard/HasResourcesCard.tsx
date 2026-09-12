@@ -14,30 +14,94 @@
  * limitations under the License.
  */
 
-import { RELATION_HAS_PART } from '@backstage/catalog-model';
-import React from 'react';
+import { RELATION_HAS_PART, ResourceEntity } from '@backstage/catalog-model';
+import {
+  InfoCardVariants,
+  TableColumn,
+  TableOptions,
+} from '@backstage/core-components';
+import {
+  EntityRelationCard,
+  EntityColumnConfig,
+  entityColumnPresets,
+} from '@backstage/plugin-catalog-react/alpha';
 import {
   asResourceEntities,
-  RelatedEntitiesCard,
   resourceEntityColumns,
-  resourceEntityHelpLink,
+  resourceEntityHelpLink as legacyHelpLink,
+  RelatedEntitiesCard,
 } from '../RelatedEntitiesCard';
+import { catalogTranslationRef } from '../../alpha/translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
-type Props = {
-  variant?: 'gridItem';
-};
+/** @public */
+export interface HasResourcesCardProps {
+  title?: string;
+  columnConfig?: EntityColumnConfig[];
+}
 
-export const HasResourcesCard = ({ variant = 'gridItem' }: Props) => {
+/**
+ * Props for the legacy MUI-based rendering.
+ * @deprecated Use {@link HasResourcesCardProps} instead.
+ * @public
+ */
+export interface HasResourcesCardLegacyProps {
+  title?: string;
+  /** @deprecated Use `columnConfig` instead. */
+  variant?: InfoCardVariants;
+  /** @deprecated Use `columnConfig` instead. */
+  columns?: TableColumn<ResourceEntity>[];
+  /** @deprecated Use `columnConfig` instead. */
+  tableOptions?: TableOptions;
+}
+
+function isLegacyProps(
+  props: HasResourcesCardProps | HasResourcesCardLegacyProps,
+): props is HasResourcesCardLegacyProps {
+  return 'variant' in props || 'columns' in props || 'tableOptions' in props;
+}
+
+export function HasResourcesCard(
+  props: HasResourcesCardProps | HasResourcesCardLegacyProps,
+) {
+  const { t } = useTranslationRef(catalogTranslationRef);
+
+  if (isLegacyProps(props)) {
+    const {
+      variant = 'gridItem',
+      title = t('hasResourcesCard.title'),
+      columns = resourceEntityColumns,
+      tableOptions = {},
+    } = props;
+    return (
+      <RelatedEntitiesCard
+        variant={variant}
+        title={title}
+        entityKind="Resource"
+        relationType={RELATION_HAS_PART}
+        columns={columns}
+        emptyMessage={t('hasResourcesCard.emptyMessage')}
+        emptyHelpLink={legacyHelpLink}
+        asRenderableEntities={asResourceEntities}
+        tableOptions={tableOptions}
+      />
+    );
+  }
+
+  const {
+    title = t('hasResourcesCard.title'),
+    columnConfig = entityColumnPresets.resource.columns,
+  } = props;
   return (
-    <RelatedEntitiesCard
-      variant={variant}
-      title="Has resources"
+    <EntityRelationCard
+      title={title}
       entityKind="Resource"
       relationType={RELATION_HAS_PART}
-      columns={resourceEntityColumns}
-      asRenderableEntities={asResourceEntities}
-      emptyMessage="No resource is part of this system"
-      emptyHelpLink={resourceEntityHelpLink}
+      columnConfig={columnConfig}
+      emptyState={{
+        message: t('hasResourcesCard.emptyMessage'),
+        helpLink: entityColumnPresets.resource.helpLink,
+      }}
     />
   );
-};
+}

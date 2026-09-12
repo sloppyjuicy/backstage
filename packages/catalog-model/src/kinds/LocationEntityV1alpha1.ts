@@ -14,10 +14,16 @@
  * limitations under the License.
  */
 
+import { createCatalogModelLayer } from '../model/createCatalogModelLayer';
 import type { Entity } from '../entity/Entity';
-import schema from '../schema/kinds/Location.v1alpha1.schema.json';
+import jsonSchema from '../schema/kinds/Location.v1alpha1.schema.json';
 import { ajvCompiledJsonSchemaValidator } from './util';
 
+/**
+ * Backstage catalog Location kind Entity.
+ *
+ * @public
+ */
 export interface LocationEntityV1alpha1 extends Entity {
   apiVersion: 'backstage.io/v1alpha1' | 'backstage.io/v1beta1';
   kind: 'Location';
@@ -25,8 +31,43 @@ export interface LocationEntityV1alpha1 extends Entity {
     type?: string;
     target?: string;
     targets?: string[];
+    presence?: 'required' | 'optional';
   };
 }
 
+/**
+ * {@link KindValidator} for {@link LocationEntityV1alpha1}.
+ *
+ * @public
+ */
 export const locationEntityV1alpha1Validator =
-  ajvCompiledJsonSchemaValidator(schema);
+  ajvCompiledJsonSchemaValidator(jsonSchema);
+
+/**
+ * Extends the catalog model with the Location kind.
+ *
+ * @alpha
+ */
+export const locationEntityModel = createCatalogModelLayer({
+  layerId: 'catalog.backstage.io/kind-location',
+  builder: model => {
+    model.addKind({
+      group: 'backstage.io',
+      names: {
+        kind: 'Location',
+        singular: 'location',
+        plural: 'locations',
+      },
+      description:
+        'A Location is a marker that references other places to look for catalog data.',
+      versions: [
+        {
+          name: ['v1alpha1', 'v1beta1'],
+          schema: {
+            jsonSchema,
+          },
+        },
+      ],
+    });
+  },
+});

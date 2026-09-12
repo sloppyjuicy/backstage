@@ -14,21 +14,21 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { renderInTestApp } from '@backstage/test-utils';
-import { act } from 'react-dom/test-utils';
+import { screen } from '@testing-library/react';
 
 import { Progress } from './Progress';
 
 describe('<Progress />', () => {
   it('renders without exploding', async () => {
-    jest.useFakeTimers();
-    const { getByTestId, queryByTestId } = await renderInTestApp(<Progress />);
-    expect(queryByTestId('progress')).not.toBeInTheDocument();
-    act(() => {
-      jest.advanceTimersByTime(250);
-    });
-    expect(getByTestId('progress')).toBeInTheDocument();
-    jest.useRealTimers();
+    const { queryByTestId } = await renderInTestApp(<Progress />);
+    expect(queryByTestId('progress')).toBeInTheDocument();
+  });
+
+  it('provides an accessible name for the progress bar', async () => {
+    await renderInTestApp(<Progress />);
+    expect(
+      await screen.findByRole('progressbar', { name: 'Loading' }),
+    ).toBeInTheDocument();
   });
 });

@@ -15,9 +15,8 @@
  */
 
 import { ScmIntegration, ScmIntegrationsGroup } from '@backstage/integration';
-import { Typography } from '@material-ui/core';
-import React from 'react';
-import { scmIntegrationsApiRef } from '../src/ScmIntegrationsApi';
+import Typography from '@material-ui/core/Typography';
+import { scmIntegrationsApiRef } from '../src/api/ScmIntegrationsApi';
 
 import { Content } from '@backstage/core-components';
 import { useApi } from '@backstage/core-plugin-api';
@@ -50,9 +49,13 @@ export const DevPage = () => {
       </Typography>
       <Integrations group={integrations.azure} />
       <Typography paragraph variant="h2">
-        Bitbucket
+        Bitbucket Cloud
       </Typography>
-      <Integrations group={integrations.bitbucket} />
+      <Integrations group={integrations.bitbucketCloud} />
+      <Typography paragraph variant="h2">
+        Bitbucket Server
+      </Typography>
+      <Integrations group={integrations.bitbucketServer} />
       <Typography paragraph variant="h2">
         GitHub
       </Typography>

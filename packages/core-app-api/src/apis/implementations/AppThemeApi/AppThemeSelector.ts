@@ -14,11 +14,18 @@
  * limitations under the License.
  */
 
-import { AppThemeApi, AppTheme, Observable } from '@backstage/core-plugin-api';
+import { AppThemeApi, AppTheme } from '@backstage/core-plugin-api';
+import { Observable } from '@backstage/types';
 import { BehaviorSubject } from '../../../lib/subjects';
 
 const STORAGE_KEY = 'theme';
 
+/**
+ * Exposes the themes installed in the app, and permits switching the currently
+ * active theme.
+ *
+ * @public
+ */
 export class AppThemeSelector implements AppThemeApi {
   static createWithStorage(themes: AppTheme[]) {
     const selector = new AppThemeSelector(themes);
@@ -32,7 +39,7 @@ export class AppThemeSelector implements AppThemeApi {
 
     selector.setActiveThemeId(initialThemeId);
 
-    selector.activeThemeId$().subscribe(themeId => {
+    const subscription = selector.activeThemeId$().subscribe(themeId => {
       if (themeId) {
         window.localStorage.setItem(STORAGE_KEY, themeId);
       } else {
@@ -40,18 +47,27 @@ export class AppThemeSelector implements AppThemeApi {
       }
     });
 
-    window.addEventListener('storage', event => {
+    const storageListener = (event: StorageEvent) => {
       if (event.key === STORAGE_KEY) {
         const themeId = localStorage.getItem(STORAGE_KEY) ?? undefined;
         selector.setActiveThemeId(themeId);
       }
-    });
+    };
+    window.addEventListener('storage', storageListener);
+
+    // Store cleanup references for potential disposal
+    selector.#storageSubscription = subscription;
+    selector.#storageListener = storageListener;
 
     return selector;
   }
 
   private activeThemeId: string | undefined;
   private readonly subject = new BehaviorSubject<string | undefined>(undefined);
+
+  // References for cleanup when using createWithStorage
+  #storageSubscription?: { unsubscribe(): void };
+  #storageListener?: (event: StorageEvent) => void;
 
   constructor(private readonly themes: AppTheme[]) {}
 
@@ -70,5 +86,21 @@ export class AppThemeSelector implements AppThemeApi {
   setActiveThemeId(themeId?: string): void {
     this.activeThemeId = themeId;
     this.subject.next(themeId);
+  }
+
+  /**
+   * Cleans up resources created by createWithStorage().
+   * Call this method when the selector is no longer needed to prevent memory leaks.
+   * This is particularly useful in testing scenarios or when the app is unmounted.
+   */
+  dispose(): void {
+    if (this.#storageSubscription) {
+      this.#storageSubscription.unsubscribe();
+      this.#storageSubscription = undefined;
+    }
+    if (this.#storageListener) {
+      window.removeEventListener('storage', this.#storageListener);
+      this.#storageListener = undefined;
+    }
   }
 }

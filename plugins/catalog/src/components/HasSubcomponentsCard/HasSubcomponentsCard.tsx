@@ -14,29 +14,98 @@
  * limitations under the License.
  */
 
-import { RELATION_HAS_PART } from '@backstage/catalog-model';
-import React from 'react';
+import { ComponentEntity, RELATION_HAS_PART } from '@backstage/catalog-model';
+import {
+  InfoCardVariants,
+  TableColumn,
+  TableOptions,
+} from '@backstage/core-components';
+import {
+  EntityRelationCard,
+  EntityColumnConfig,
+  entityColumnPresets,
+} from '@backstage/plugin-catalog-react/alpha';
 import {
   asComponentEntities,
   componentEntityColumns,
   RelatedEntitiesCard,
 } from '../RelatedEntitiesCard';
+import { catalogTranslationRef } from '../../alpha/translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
-type Props = {
-  variant?: 'gridItem';
-};
+/** @public */
+export interface HasSubcomponentsCardProps {
+  title?: string;
+  columnConfig?: EntityColumnConfig[];
+  kind?: string;
+}
 
-export const HasSubcomponentsCard = ({ variant = 'gridItem' }: Props) => {
+/**
+ * Props for the legacy MUI-based rendering.
+ * @deprecated Use {@link HasSubcomponentsCardProps} instead.
+ * @public
+ */
+export interface HasSubcomponentsCardLegacyProps {
+  title?: string;
+  /** @deprecated Use `columnConfig` instead. */
+  variant?: InfoCardVariants;
+  /** @deprecated Use `columnConfig` instead. */
+  columns?: TableColumn<ComponentEntity>[];
+  /** @deprecated Use `columnConfig` instead. */
+  tableOptions?: TableOptions;
+  kind?: string;
+}
+
+function isLegacyProps(
+  props: HasSubcomponentsCardProps | HasSubcomponentsCardLegacyProps,
+): props is HasSubcomponentsCardLegacyProps {
+  return 'variant' in props || 'columns' in props || 'tableOptions' in props;
+}
+
+export function HasSubcomponentsCard(
+  props: HasSubcomponentsCardProps | HasSubcomponentsCardLegacyProps,
+) {
+  const { t } = useTranslationRef(catalogTranslationRef);
+
+  if (isLegacyProps(props)) {
+    const {
+      variant = 'gridItem',
+      title = t('hasSubcomponentsCard.title'),
+      columns = componentEntityColumns,
+      tableOptions = {},
+      kind = 'Component',
+    } = props;
+    return (
+      <RelatedEntitiesCard
+        variant={variant}
+        title={title}
+        entityKind={kind}
+        relationType={RELATION_HAS_PART}
+        columns={columns}
+        asRenderableEntities={asComponentEntities}
+        emptyMessage={t('hasSubcomponentsCard.emptyMessage')}
+        emptyHelpLink="https://backstage.io/docs/features/software-catalog/descriptor-format#specsubcomponentof-optional"
+        tableOptions={tableOptions}
+      />
+    );
+  }
+
+  const {
+    title = t('hasSubcomponentsCard.title'),
+    columnConfig = entityColumnPresets.component.columns,
+    kind = 'Component',
+  } = props;
   return (
-    <RelatedEntitiesCard
-      variant={variant}
-      title="Has subcomponents"
-      entityKind="Component"
+    <EntityRelationCard
+      title={title}
+      entityKind={kind}
       relationType={RELATION_HAS_PART}
-      columns={componentEntityColumns}
-      asRenderableEntities={asComponentEntities}
-      emptyMessage="No subcomponent is part of this component"
-      emptyHelpLink="https://backstage.io/docs/features/software-catalog/descriptor-format#specsubcomponentof-optional"
+      columnConfig={columnConfig}
+      emptyState={{
+        message: t('hasSubcomponentsCard.emptyMessage'),
+        helpLink:
+          'https://backstage.io/docs/features/software-catalog/descriptor-format#specsubcomponentof-optional',
+      }}
     />
   );
-};
+}

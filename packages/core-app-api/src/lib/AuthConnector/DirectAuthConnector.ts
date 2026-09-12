@@ -13,18 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { AuthProvider, DiscoveryApi } from '@backstage/core-plugin-api';
-import { showLoginPopup } from '../loginPopup';
+import { AuthProviderInfo, DiscoveryApi } from '@backstage/core-plugin-api';
+import { openLoginPopup } from '../loginPopup';
 
 type Options = {
   discoveryApi: DiscoveryApi;
   environment?: string;
-  provider: AuthProvider & { id: string };
+  provider: AuthProviderInfo;
 };
 export class DirectAuthConnector<DirectAuthResponse> {
   private readonly discoveryApi: DiscoveryApi;
   private readonly environment: string | undefined;
-  private readonly provider: AuthProvider & { id: string };
+  private readonly provider: AuthProviderInfo;
 
   constructor(options: Options) {
     const { discoveryApi, environment, provider } = options;
@@ -36,13 +36,12 @@ export class DirectAuthConnector<DirectAuthResponse> {
 
   async createSession(): Promise<DirectAuthResponse> {
     const popupUrl = await this.buildUrl('/start');
-    const payload = await showLoginPopup({
+    const payload = (await openLoginPopup({
       url: popupUrl,
       name: `${this.provider.title} Login`,
-      origin: new URL(popupUrl).origin,
       width: 450,
       height: 730,
-    });
+    })) as any;
 
     return {
       ...payload,

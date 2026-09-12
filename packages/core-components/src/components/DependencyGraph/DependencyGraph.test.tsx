@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import { render } from '@testing-library/react';
+import { waitFor } from '@testing-library/react';
 import { DependencyGraph } from './DependencyGraph';
-import { RenderLabelProps, RenderNodeProps } from './types';
+import { DependencyGraphTypes as Types } from './types';
 import { EDGE_TEST_ID, LABEL_TEST_ID, NODE_TEST_ID } from './constants';
+import { renderInTestApp } from '@backstage/test-utils';
 
 describe('<DependencyGraph />', () => {
   beforeAll(() => {
@@ -37,9 +37,8 @@ describe('<DependencyGraph />', () => {
   const CUSTOM_TEST_ID = 'custom-test-id';
 
   it('renders each node and edge supplied', async () => {
-    const { getByText, queryAllByTestId, findAllByTestId } = render(
-      <DependencyGraph nodes={nodes} edges={edges} />,
-    );
+    const { getByText, queryAllByTestId, findAllByTestId } =
+      await renderInTestApp(<DependencyGraph nodes={nodes} edges={edges} />);
     const renderedNodes = await findAllByTestId(NODE_TEST_ID);
     expect(renderedNodes).toHaveLength(3);
     expect(getByText(nodes[0].id)).toBeInTheDocument();
@@ -49,14 +48,38 @@ describe('<DependencyGraph />', () => {
     expect(queryAllByTestId(LABEL_TEST_ID)).toHaveLength(0);
   });
 
+  it('update render if already referenced nodes are added later', async () => {
+    const { getByText, queryAllByTestId, findAllByTestId, rerender } =
+      await renderInTestApp(
+        <DependencyGraph nodes={nodes.slice(0, 2)} edges={edges} />,
+      );
+
+    let renderedNodes = await findAllByTestId(NODE_TEST_ID);
+    expect(renderedNodes).toHaveLength(2);
+    expect(getByText(nodes[0].id)).toBeInTheDocument();
+    expect(getByText(nodes[1].id)).toBeInTheDocument();
+    expect(queryAllByTestId(EDGE_TEST_ID)).toHaveLength(2);
+    expect(queryAllByTestId(LABEL_TEST_ID)).toHaveLength(0);
+
+    rerender(<DependencyGraph nodes={nodes} edges={edges} />);
+
+    renderedNodes = await findAllByTestId(NODE_TEST_ID);
+    expect(renderedNodes).toHaveLength(3);
+    expect(getByText(nodes[0].id)).toBeInTheDocument();
+    expect(getByText(nodes[1].id)).toBeInTheDocument();
+    expect(queryAllByTestId(EDGE_TEST_ID)).toHaveLength(2);
+    expect(queryAllByTestId(LABEL_TEST_ID)).toHaveLength(0);
+  });
+
   it('renders edge labels if present', async () => {
     const labeledEdges = [
       { ...edges[0], label: 'first' },
       { ...edges[1], label: 'second' },
     ];
-    const { getByText, getAllByTestId, findAllByTestId } = render(
-      <DependencyGraph nodes={nodes} edges={labeledEdges} />,
-    );
+    const { getByText, getAllByTestId, findAllByTestId } =
+      await renderInTestApp(
+        <DependencyGraph nodes={nodes} edges={labeledEdges} />,
+      );
     const renderedEdges = await findAllByTestId(EDGE_TEST_ID);
     expect(renderedEdges).toHaveLength(2);
     expect(getAllByTestId(LABEL_TEST_ID)).toHaveLength(2);
@@ -67,13 +90,13 @@ describe('<DependencyGraph />', () => {
   it('renders nodes according to renderNode prop', async () => {
     const singleNode = [nodes[0]];
 
-    const renderNode = (props: RenderNodeProps) => (
+    const renderNode = (props: Types.RenderNodeProps) => (
       <g>
         <text>{props.node.id}</text>
         <circle data-testid={CUSTOM_TEST_ID} r={100} />
       </g>
     );
-    const { getByText, findByTestId, container } = render(
+    const { getByText, findByTestId, container } = await renderInTestApp(
       <DependencyGraph nodes={singleNode} edges={[]} renderNode={renderNode} />,
     );
     const node = await findByTestId(CUSTOM_TEST_ID);
@@ -85,13 +108,13 @@ describe('<DependencyGraph />', () => {
   it('renders labels according to renderLabel prop', async () => {
     const labeledEdge = [{ ...edges[0], label: 'label' }];
 
-    const renderLabel = (props: RenderLabelProps) => (
+    const renderLabel = (props: Types.RenderLabelProps) => (
       <g>
         <text>{props.edge.label}</text>
         <circle data-testid={CUSTOM_TEST_ID} r={100} />
       </g>
     );
-    const { getByText, findByTestId, container } = render(
+    const { getByText, findByTestId, container } = await renderInTestApp(
       <DependencyGraph
         nodes={nodes}
         edges={labeledEdge}
@@ -102,5 +125,51 @@ describe('<DependencyGraph />', () => {
     expect(node).toBeInTheDocument();
     expect(container.querySelector('circle')).toBeInTheDocument();
     expect(getByText(labeledEdge[0].label)).toBeInTheDocument();
+  });
+
+  it('settles graph layout so nodes are visible after initial render', async () => {
+    const { container, findAllByTestId } = await renderInTestApp(
+      <DependencyGraph nodes={nodes} edges={edges} />,
+    );
+    await findAllByTestId(NODE_TEST_ID);
+
+    const outerSvg = container.querySelector('#dependency-graph')!;
+    const containerDiv = outerSvg.parentElement!;
+    await waitFor(() => {
+      expect(containerDiv).toHaveStyle({ visibility: 'visible' });
+      expect(outerSvg.querySelector('style')).toBeNull();
+    });
+  });
+
+  it('settles graph layout even when measurements return zero dimensions', async () => {
+    const originalGetBBox = Object.getOwnPropertyDescriptor(
+      window.SVGElement.prototype,
+      'getBBox',
+    )!;
+
+    Object.defineProperty(window.SVGElement.prototype, 'getBBox', {
+      value: () => ({ width: 0, height: 0, x: 0, y: 0 }),
+      configurable: true,
+    });
+
+    try {
+      const { container, findAllByTestId } = await renderInTestApp(
+        <DependencyGraph nodes={nodes} edges={edges} />,
+      );
+      await findAllByTestId(NODE_TEST_ID);
+
+      const outerSvg = container.querySelector('#dependency-graph')!;
+      const containerDiv = outerSvg.parentElement!;
+      await waitFor(() => {
+        expect(containerDiv).toHaveStyle({ visibility: 'visible' });
+        expect(outerSvg.querySelector('style')).toBeNull();
+      });
+    } finally {
+      Object.defineProperty(
+        window.SVGElement.prototype,
+        'getBBox',
+        originalGetBBox,
+      );
+    }
   });
 });

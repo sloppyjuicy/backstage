@@ -14,81 +14,244 @@
  * limitations under the License.
  */
 
-import { rest } from 'msw';
-import { setupServer } from 'msw/node';
 import { GitLabIntegrationConfig } from './config';
-import { getGitLabFileFetchUrl } from './core';
-
-const worker = setupServer();
+import {
+  getGitLabFileFetchUrl,
+  getGitLabRequestOptions,
+  extractProjectPath,
+} from './core';
 
 describe('gitlab core', () => {
-  beforeAll(() => worker.listen({ onUnhandledRequest: 'error' }));
-  afterAll(() => worker.close());
-  afterEach(() => worker.resetHandlers());
-
-  beforeEach(() => {
-    worker.use(
-      rest.get('*/api/v4/projects/:name', (_, res, ctx) =>
-        res(ctx.status(200), ctx.json({ id: 12345 })),
-      ),
-    );
-  });
-
-  const configWithToken: GitLabIntegrationConfig = {
-    host: 'g.com',
-    token: '0123456789',
+  const configWithNoToken: GitLabIntegrationConfig = {
+    host: 'gitlab.com',
     apiBaseUrl: '<ignored>',
     baseUrl: '<ignored>',
   };
 
-  const configWithNoToken: GitLabIntegrationConfig = {
-    host: 'g.com',
+  const configSelfHosteWithRelativePath: GitLabIntegrationConfig = {
+    host: 'gitlab.mycompany.com',
+    token: '0123456789',
     apiBaseUrl: '<ignored>',
-    baseUrl: '<ignored>',
+    baseUrl: 'https://gitlab.mycompany.com/gitlab',
+  };
+
+  const configSelfHostedWithoutRelativePath: GitLabIntegrationConfig = {
+    host: 'gitlab.mycompany.com',
+    token: '0123456789',
+    apiBaseUrl: '<ignored>',
+    baseUrl: 'https://gitlab.mycompany.com',
   };
 
   describe('getGitLabFileFetchUrl', () => {
-    it.each([
-      // Project URLs
-      {
-        config: configWithNoToken,
-        url: 'https://gitlab.com/groupA/teams/teamA/subgroupA/repoA/-/blob/branch/my/path/to/file.yaml',
-        result:
-          'https://gitlab.com/api/v4/projects/12345/repository/files/my%2Fpath%2Fto%2Ffile.yaml/raw?ref=branch',
-      },
-      {
-        config: configWithNoToken,
-        // Works with non URI encoded link
-        url: 'https://gitlab.com/groupA/teams/teamA/subgroupA/repoA/-/blob/branch/my/path/to/file with spaces.yaml',
-        result:
-          'https://gitlab.com/api/v4/projects/12345/repository/files/my%2Fpath%2Fto%2Ffile%20with%20spaces.yaml/raw?ref=branch',
-      },
-      {
-        config: configWithNoToken,
-        url: 'https://gitlab.com/groupA/teams/teamA/subgroupA/repoA/-/blob/branch/my/path%20with%20spaces/to/file.yaml',
-        result:
-          'https://gitlab.com/api/v4/projects/12345/repository/files/my%2Fpath%20with%20spaces%2Fto%2Ffile.yaml/raw?ref=branch',
-      },
-      {
-        config: configWithToken,
-        url: 'https://gitlab.example.com/groupA/teams/teamA/subgroupA/repoA/-/blob/branch/my/path%20with%20spaces/to/file.yaml',
-        result:
-          'https://gitlab.example.com/api/v4/projects/12345/repository/files/my%2Fpath%20with%20spaces%2Fto%2Ffile.yaml/raw?ref=branch',
-      },
-      {
-        config: configWithNoToken,
-        url: 'https://gitlab.com/groupA/teams/teamA/repoA/-/blob/branch/my/path%20with%20spaces/to/file.yaml', // Repo not in subgroup
-        result:
-          'https://gitlab.com/api/v4/projects/12345/repository/files/my%2Fpath%20with%20spaces%2Fto%2Ffile.yaml/raw?ref=branch',
-      },
-      // Raw URLs
-      {
-        config: configWithNoToken,
-        url: 'https://gitlab.example.com/a/b/blob/master/c.yaml',
-        result: 'https://gitlab.example.com/a/b/raw/master/c.yaml',
-      },
-    ])('should handle happy path %#', async ({ config, url, result }) => {
-      await expect(getGitLabFileFetchUrl(url, config)).resolves.toBe(result);
+    describe('when target has a scoped route', () => {
+      it('returns a projects API URL', async () => {
+        const target =
+          'https://gitlab.com/group/project/-/blob/branch/folder/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('supports folder named "blob"', async () => {
+        const target =
+          'https://gitlab.com/group/project/-/blob/branch/blob/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/blob%2Ffile.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('locates projects in subgroups', async () => {
+        const target =
+          'https://gitlab.com/group/subgroup/project/-/blob/branch/folder/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fsubgroup%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('supports filename with .yml extension', async () => {
+        const target =
+          'https://gitlab.com/group/project/-/blob/branch/folder/file.yml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('supports non-URI-encoded target', async () => {
+        const target =
+          'https://gitlab.com/group/project/-/blob/branch/folder/file with spaces.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile%20with%20spaces.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      describe('when gitlab is self-hosted', () => {
+        it('returns projects API URL', async () => {
+          const target =
+            'https://gitlab.mycompany.com/group/project/-/blob/branch/folder/file.yaml';
+          const fetchUrl =
+            'https://gitlab.mycompany.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+          await expect(
+            getGitLabFileFetchUrl(target, configSelfHostedWithoutRelativePath),
+          ).resolves.toBe(fetchUrl);
+        });
+
+        it('handles non-URI-encoded target', async () => {
+          const target =
+            'https://gitlab.mycompany.com/group/project/-/blob/branch/folder/file with spaces.yaml';
+          const fetchUrl =
+            'https://gitlab.mycompany.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile%20with%20spaces.yaml/raw?ref=branch';
+          await expect(
+            getGitLabFileFetchUrl(target, configSelfHostedWithoutRelativePath),
+          ).resolves.toBe(fetchUrl);
+        });
+
+        describe('with a relative path', () => {
+          it('returns projects API URL', async () => {
+            const target =
+              'https://gitlab.mycompany.com/gitlab/group/project/-/blob/branch/folder/file.yaml';
+            const fetchUrl =
+              'https://gitlab.mycompany.com/gitlab/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+            await expect(
+              getGitLabFileFetchUrl(target, configSelfHosteWithRelativePath),
+            ).resolves.toBe(fetchUrl);
+          });
+
+          it('handles non-URI-encoded target', async () => {
+            const target =
+              'https://gitlab.mycompany.com/gitlab/group/project/-/blob/branch/folder/file with spaces.yaml';
+            const fetchUrl =
+              'https://gitlab.mycompany.com/gitlab/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile%20with%20spaces.yaml/raw?ref=branch';
+            await expect(
+              getGitLabFileFetchUrl(target, configSelfHosteWithRelativePath),
+            ).resolves.toBe(fetchUrl);
+          });
+        });
+      });
+    });
+
+    describe('when target has an unscoped route', () => {
+      it('returns projects API URL', async () => {
+        const target =
+          'https://gitlab.com/group/project/blob/branch/folder/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('supports project in subgroup', async () => {
+        const target =
+          'https://gitlab.com/group/subgroup/project/blob/branch/folder/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fsubgroup%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=branch';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+
+      it('supports repo with branch named "blob"', async () => {
+        const target =
+          'https://gitlab.com/group/project/blob/blob/folder/file.yaml';
+        const fetchUrl =
+          'https://gitlab.com/api/v4/projects/group%2Fproject/repository/files/folder%2Ffile.yaml/raw?ref=blob';
+        await expect(
+          getGitLabFileFetchUrl(target, configWithNoToken),
+        ).resolves.toBe(fetchUrl);
+      });
+    });
+  });
+
+  describe('extractProjectPath', () => {
+    it('extracts project path from scoped route', () => {
+      const target =
+        'https://gitlab.com/group/project/-/blob/branch/folder/file.yaml';
+      expect(extractProjectPath(target, configWithNoToken)).toBe(
+        'group/project',
+      );
+    });
+
+    it('extracts project path from subgroup', () => {
+      const target =
+        'https://gitlab.com/group/subgroup/project/-/blob/branch/folder/file.yaml';
+      expect(extractProjectPath(target, configWithNoToken)).toBe(
+        'group/subgroup/project',
+      );
+    });
+
+    it('extracts project path from unscoped route', () => {
+      const target =
+        'https://gitlab.com/group/project/blob/branch/folder/file.yaml';
+      expect(extractProjectPath(target, configWithNoToken)).toBe(
+        'group/project',
+      );
+    });
+
+    it('extracts project path from self-hosted gitlab with relative path', () => {
+      const target =
+        'https://gitlab.mycompany.com/gitlab/group/project/-/blob/branch/folder/file.yaml';
+      expect(extractProjectPath(target, configSelfHosteWithRelativePath)).toBe(
+        'group/project',
+      );
+    });
+
+    it('requires the configured relative path to be a pathname prefix', () => {
+      const validTarget =
+        'https://gitlab.mycompany.com/gitlab/group/gitlab-project/-/blob/branch/folder/file.yaml';
+      expect(
+        extractProjectPath(validTarget, configSelfHosteWithRelativePath),
+      ).toBe('group/gitlab-project');
+
+      const invalidTarget =
+        'https://gitlab.mycompany.com/group/gitlab/project/-/blob/branch/folder/file.yaml';
+      expect(() =>
+        extractProjectPath(invalidTarget, configSelfHosteWithRelativePath),
+      ).toThrow(
+        'Failed extracting project path from /group/gitlab/project/-/blob/branch/folder/file.yaml. Url path must start with /gitlab/.',
+      );
+    });
+
+    it('throws error for invalid URLs without blob path', () => {
+      const target = 'https://gitlab.com/some/random/endpoint';
+      expect(() => extractProjectPath(target, configWithNoToken)).toThrow(
+        'Failed extracting project path from /some/random/endpoint. Url path must include /blob/.',
+      );
+    });
+  });
+
+  describe('getGitLabRequestOptions', () => {
+    it('should return Authorization bearer header when a token is provided', async () => {
+      const token = '1234567890';
+      const result = getGitLabRequestOptions(
+        configSelfHosteWithRelativePath,
+        token,
+      );
+
+      expect(result).toEqual({
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    });
+
+    it('should return Authorization bearer header using the config token when no token is provided', async () => {
+      const result = getGitLabRequestOptions(configSelfHosteWithRelativePath);
+
+      expect(result).toEqual({
+        headers: {
+          Authorization: `Bearer ${configSelfHosteWithRelativePath.token}`,
+        },
+      });
     });
   });
 });

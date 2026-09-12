@@ -1,7 +1,6 @@
 # Backstage Catalog Frontend
 
-This is the React frontend for the default Backstage [software
-catalog](http://backstage.io/docs/features/software-catalog/software-catalog-overview).
+This is the React frontend for the default Backstage [software catalog](http://backstage.io/docs/features/software-catalog/).
 This package supplies interfaces related to listing catalog entities or showing
 more information about them on entity pages.
 
@@ -16,13 +15,16 @@ To check if you already have the package, look under
 `@backstage/plugin-catalog`. The instructions below walk through restoring the
 plugin, if you previously removed it.
 
-### Install the package
-
 ```bash
 # From your Backstage root directory
-cd packages/app
-yarn add @backstage/plugin-catalog
+yarn --cwd packages/app add @backstage/plugin-catalog
 ```
+
+Once installed, the plugin is automatically available in your app through the default feature discovery. For more details and alternative installation methods, see [installing plugins](https://backstage.io/docs/frontend-system/building-apps/installing-plugins).
+
+## Old Frontend System
+
+If your Backstage app uses the old frontend system, you need to manually wire the plugin into your app as outlined in this section. If you are on the new frontend system, you can skip this.
 
 ### Add the plugin to your `packages/app`
 
@@ -95,7 +97,7 @@ To evaluate the catalog and have a greater amount of functionality available,
 run the entire Backstage example application from the root folder:
 
 ```bash
-yarn dev
+yarn start
 ```
 
 This will launch both frontend and backend in the same window, populated with

@@ -14,28 +14,49 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import { ReactNode, FC } from 'react';
 
 import { PageWithHeader } from '@backstage/core-components';
 import { useApi, configApiRef } from '@backstage/core-plugin-api';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { techdocsTranslationRef } from '../../translation';
 
-type Props = {
-  children?: React.ReactNode;
+/**
+ * Props for {@link TechDocsPageWrapper}
+ *
+ * @public
+ */
+export type TechDocsPageWrapperProps = {
+  children?: ReactNode;
+  CustomPageWrapper?: FC<{ children?: ReactNode }>;
 };
 
-export const TechDocsPageWrapper = ({ children }: Props) => {
+/**
+ * Component wrapping a TechDocs page with Page and Header components
+ *
+ * @public
+ */
+export const TechDocsPageWrapper = (props: TechDocsPageWrapperProps) => {
+  const { children, CustomPageWrapper } = props;
   const configApi = useApi(configApiRef);
-  const generatedSubtitle = `Documentation available in ${
-    configApi.getOptionalString('organization.name') ?? 'Backstage'
-  }`;
+  const { t } = useTranslationRef(techdocsTranslationRef);
+  const orgName =
+    configApi.getOptionalString('organization.name') ?? 'Backstage';
+  const generatedSubtitle = t('pageWrapper.subtitle', { orgName });
 
   return (
-    <PageWithHeader
-      title="Documentation"
-      subtitle={generatedSubtitle}
-      themeId="documentation"
-    >
-      {children}
-    </PageWithHeader>
+    <>
+      {CustomPageWrapper ? (
+        <CustomPageWrapper>{children}</CustomPageWrapper>
+      ) : (
+        <PageWithHeader
+          title={t('pageWrapper.title')}
+          subtitle={generatedSubtitle}
+          themeId="documentation"
+        >
+          {children}
+        </PageWithHeader>
+      )}
+    </>
   );
 };

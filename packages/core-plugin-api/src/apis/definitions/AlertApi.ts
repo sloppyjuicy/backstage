@@ -13,31 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { createApiRef, ApiRef } from '../system';
-import { Observable } from '../../types';
-
-export type AlertMessage = {
-  message: string;
-  // Severity will default to success since that is what material ui defaults the value to.
-  severity?: 'success' | 'info' | 'warning' | 'error';
-};
 
 /**
- * The alert API is used to report alerts to the app, and display them to the user.
+ * @deprecated AlertApi is deprecated. Use ToastApi from `@backstage/frontend-plugin-api` instead.
+ *
+ * ToastApi provides richer notification features including title/description,
+ * action links, custom icons, per-toast timeout control, and programmatic dismiss.
+ *
+ * @example
+ * ```typescript
+ * // Before (AlertApi)
+ * import { alertApiRef } from '@backstage/core-plugin-api';
+ * alertApi.post({ message: 'Saved!', severity: 'success', display: 'transient' });
+ *
+ * // After (ToastApi)
+ * import { toastApiRef } from '@backstage/frontend-plugin-api';
+ * toastApi.post({ title: 'Saved!', status: 'success', timeout: 5000 });
+ * ```
  */
-
-export type AlertApi = {
-  /**
-   * Post an alert for handling by the application.
-   */
-  post(alert: AlertMessage): void;
-
-  /**
-   * Observe alerts posted by other parts of the application.
-   */
-  alert$(): Observable<AlertMessage>;
-};
-
-export const alertApiRef: ApiRef<AlertApi> = createApiRef({
-  id: 'core.alert',
-});
+export {
+  type AlertApi,
+  type AlertMessage,
+  alertApiRef,
+} from '@backstage/frontend-plugin-api';

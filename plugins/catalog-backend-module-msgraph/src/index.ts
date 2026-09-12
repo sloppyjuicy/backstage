@@ -14,5 +14,13 @@
  * limitations under the License.
  */
 
-export * from './processors';
+/**
+ * A Backstage catalog backend module that helps integrate towards Microsoft Graph
+ *
+ * @packageDocumentation
+ */
+
+export { default } from './module';
+export * from './module';
 export * from './microsoftGraph';
+export * from './processors';

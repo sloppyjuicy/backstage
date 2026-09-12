@@ -14,4 +14,10 @@
  * limitations under the License.
  */
 
-export * from './service/router';
+/**
+ * A Backstage backend plugin that serves the Backstage frontend app
+ *
+ * @packageDocumentation
+ */
+
+export { appPlugin as default } from './service/appPlugin';

@@ -13,37 +13,56 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { IndexableDocument } from '@backstage/search-common';
+import { IndexableDocument } from '@backstage/plugin-search-common';
 import { Knex } from 'knex';
+import { PgSearchHighlightOptions } from '../PgSearchEngine';
 
+/** @public */
 export interface PgSearchQuery {
   fields?: Record<string, string | string[]>;
   types?: string[];
   pgTerm?: string;
+  offset: number;
+  limit: number;
+  normalization?: number;
+  options: PgSearchHighlightOptions;
 }
 
+/** @public */
 export interface DatabaseStore {
   transaction<T>(fn: (tx: Knex.Transaction) => Promise<T>): Promise<T>;
+  getTransaction(): Promise<Knex.Transaction>;
   prepareInsert(tx: Knex.Transaction): Promise<void>;
   insertDocuments(
     tx: Knex.Transaction,
     type: string,
     documents: IndexableDocument[],
   ): Promise<void>;
-  completeInsert(tx: Knex.Transaction, type: string): Promise<void>;
+  completeInsert(
+    tx: Knex.Transaction,
+    type: string,
+    truncate?: boolean,
+  ): Promise<void>;
   query(
     tx: Knex.Transaction,
     pgQuery: PgSearchQuery,
   ): Promise<DocumentResultRow[]>;
 }
 
+/** @public */
 export interface RawDocumentRow {
   document: IndexableDocument;
   type: string;
   hash: unknown;
 }
 
+/** @public */
 export interface DocumentResultRow {
+  /**
+   * Total number of documents matching the query, regardless of pagination.
+   */
+  total_count: string;
   document: IndexableDocument;
   type: string;
+  highlight: IndexableDocument;
 }

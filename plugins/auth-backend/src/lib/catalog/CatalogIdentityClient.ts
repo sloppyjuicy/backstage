@@ -14,37 +14,27 @@
  * limitations under the License.
  */
 
-import { Logger } from 'winston';
+import { AuthService, LoggerService } from '@backstage/backend-plugin-api';
 import { ConflictError, NotFoundError } from '@backstage/errors';
-import { CatalogApi } from '@backstage/catalog-client';
+import { CatalogService } from '@backstage/plugin-catalog-node';
 import {
-  EntityName,
+  CompoundEntityRef,
   parseEntityRef,
   RELATION_MEMBER_OF,
   stringifyEntityRef,
   UserEntity,
 } from '@backstage/catalog-model';
-import { TokenIssuer } from '../../identity';
-
-type UserQuery = {
-  annotations: Record<string, string>;
-};
-
-type MemberClaimQuery = {
-  entityRefs: string[];
-  logger?: Logger;
-};
 
 /**
  * A catalog client tailored for reading out identity data from the catalog.
  */
 export class CatalogIdentityClient {
-  private readonly catalogApi: CatalogApi;
-  private readonly tokenIssuer: TokenIssuer;
+  private readonly catalog: CatalogService;
+  private readonly auth: AuthService;
 
-  constructor(options: { catalogApi: CatalogApi; tokenIssuer: TokenIssuer }) {
-    this.catalogApi = options.catalogApi;
-    this.tokenIssuer = options.tokenIssuer;
+  constructor(options: { catalog: CatalogService; auth: AuthService }) {
+    this.catalog = options.catalog;
+    this.auth = options.auth;
   }
 
   /**
@@ -52,7 +42,9 @@ export class CatalogIdentityClient {
    *
    * Throws a NotFoundError or ConflictError if 0 or multiple users are found.
    */
-  async findUser(query: UserQuery): Promise<UserEntity> {
+  async findUser(query: {
+    annotations: Record<string, string>;
+  }): Promise<UserEntity> {
     const filter: Record<string, string> = {
       kind: 'user',
     };
@@ -60,11 +52,10 @@ export class CatalogIdentityClient {
       filter[`metadata.annotations.${key}`] = value;
     }
 
-    // TODO(Rugvip): cache the token
-    const token = await this.tokenIssuer.issueToken({
-      claims: { sub: 'backstage.io/auth-backend' },
-    });
-    const { items } = await this.catalogApi.getEntities({ filter }, { token });
+    const { items } = await this.catalog.getEntities(
+      { filter },
+      { credentials: await this.auth.getOwnServiceCredentials() },
+    );
 
     if (items.length !== 1) {
       if (items.length > 1) {
@@ -84,14 +75,15 @@ export class CatalogIdentityClient {
    *
    * Returns a superset of the entity names that can be passed directly to `issueToken` as `ent`.
    */
-  async resolveCatalogMembership({
-    entityRefs,
-    logger,
-  }: MemberClaimQuery): Promise<string[]> {
+  async resolveCatalogMembership(query: {
+    entityRefs: string[];
+    logger?: LoggerService;
+  }): Promise<string[]> {
+    const { entityRefs, logger } = query;
     const resolvedEntityRefs = entityRefs
       .map((ref: string) => {
         try {
-          const parsedRef = parseEntityRef(ref.toLocaleLowerCase('en-US'), {
+          const parsedRef = parseEntityRef(ref.toLowerCase(), {
             defaultKind: 'user',
             defaultNamespace: 'default',
           });
@@ -101,15 +93,19 @@ export class CatalogIdentityClient {
           return null;
         }
       })
-      .filter((ref): ref is EntityName => ref !== null);
+      .filter((ref): ref is CompoundEntityRef => ref !== null);
 
     const filter = resolvedEntityRefs.map(ref => ({
       kind: ref.kind,
       'metadata.namespace': ref.namespace,
       'metadata.name': ref.name,
     }));
-    const entities = await this.catalogApi
-      .getEntities({ filter })
+
+    const entities = await this.catalog
+      .getEntities(
+        { filter },
+        { credentials: await this.auth.getOwnServiceCredentials() },
+      )
       .then(r => r.items);
 
     if (entityRefs.length !== entities.length) {
@@ -124,11 +120,11 @@ export class CatalogIdentityClient {
       e =>
         e!.relations
           ?.filter(r => r.type === RELATION_MEMBER_OF)
-          .map(r => r.target) ?? [],
+          .map(r => r.targetRef) ?? [],
     );
 
     const newEntityRefs = [
-      ...new Set(resolvedEntityRefs.concat(memberOf).map(stringifyEntityRef)),
+      ...new Set(resolvedEntityRefs.map(stringifyEntityRef).concat(memberOf)),
     ];
 
     logger?.debug(`Found catalog membership: ${newEntityRefs.join()}`);

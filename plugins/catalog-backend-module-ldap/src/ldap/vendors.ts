@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-import { SearchEntry } from 'ldapjs';
+import { Entry } from 'ldapts';
 
 /**
  * An LDAP Vendor handles unique nuances between different vendors.
+ *
+ * @public
  */
 export type LdapVendor = {
   /**
@@ -28,13 +30,14 @@ export type LdapVendor = {
    * The attribute name that holds a universal unique identifier for an entry.
    */
   uuidAttributeName: string;
+
   /**
    * Decode ldap entry values for a given attribute name to their string representation.
    *
-   * @param entry The ldap entry
-   * @param name The attribute to decode
+   * @param entry - The ldap entry
+   * @param name - The attribute to decode
    */
-  decodeStringAttribute: (entry: SearchEntry, name: string) => string[];
+  decodeStringAttribute: (entry: Entry, name: string) => string[];
 };
 
 export const DefaultLdapVendor: LdapVendor = {
@@ -61,13 +64,53 @@ export const ActiveDirectoryVendor: LdapVendor = {
   },
 };
 
+export const FreeIpaVendor: LdapVendor = {
+  dnAttributeName: 'dn',
+  uuidAttributeName: 'ipaUniqueID',
+  decodeStringAttribute: (entry, name) => {
+    return decode(entry, name, value => {
+      return value.toString();
+    });
+  },
+};
+
+export const AEDirVendor: LdapVendor = {
+  dnAttributeName: 'dn',
+  uuidAttributeName: 'entryUUID',
+  decodeStringAttribute: (entry, name) => {
+    return decode(entry, name, value => {
+      return value.toString();
+    });
+  },
+};
+
+export const GoogleLdapVendor: LdapVendor = {
+  dnAttributeName: 'dn',
+  uuidAttributeName: 'uid',
+  decodeStringAttribute: (entry, name) => {
+    return decode(entry, name, value => {
+      return value.toString();
+    });
+  },
+};
+
+export const LLDAPVendor: LdapVendor = {
+  dnAttributeName: 'dn',
+  uuidAttributeName: 'entryuuid',
+  decodeStringAttribute: (entry, name) => {
+    return decode(entry, name.toLowerCase(), value => {
+      return value.toString();
+    });
+  },
+};
+
 // Decode an attribute to a consumer
 function decode(
-  entry: SearchEntry,
+  entry: Entry,
   attributeName: string,
   decoder: (value: string | Buffer) => string,
 ): string[] {
-  const values = entry.raw[attributeName];
+  const values = entry[attributeName];
   if (Array.isArray(values)) {
     return values.map(v => {
       return decoder(v);
@@ -83,7 +126,7 @@ function decode(
 function formatGUID(objectGUID: string | Buffer): string {
   let data: Buffer;
   if (typeof objectGUID === 'string') {
-    data = new Buffer(objectGUID, 'binary');
+    data = Buffer.from(objectGUID, 'binary');
   } else {
     data = objectGUID;
   }
@@ -92,7 +135,6 @@ function formatGUID(objectGUID: string | Buffer): string {
 
   // check each byte
   for (let i = 0; i < data.length; i++) {
-    // @ts-ignore
     let dataStr = data[i].toString(16);
     dataStr = data[i] >= 16 ? dataStr : `0${dataStr}`;
 

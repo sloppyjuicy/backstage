@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-import { render, within } from '@testing-library/react';
+import { render, within, waitFor } from '@testing-library/react';
 import { startCase } from 'lodash';
-import React from 'react';
 import { StructuredMetadataTable } from './StructuredMetadataTable';
 
 describe('<StructuredMetadataTable />', () => {
   it('renders without exploding', () => {
-    const metadata = { hello: 'world' };
+    const metadata = { hello: 'world', foo: null };
     const { getByText } = render(
       <StructuredMetadataTable metadata={metadata} />,
     );
@@ -66,7 +65,7 @@ describe('<StructuredMetadataTable />', () => {
         expect(getByText(startCase(value))).toBeInTheDocument();
       });
       metadata.arrayField.forEach(value => {
-        expect(getByText(value)).toBeInTheDocument();
+        expect(getByText(new RegExp(value))).toBeInTheDocument();
       });
     });
 
@@ -113,6 +112,81 @@ describe('<StructuredMetadataTable />', () => {
           getByText(value.toString(), { exact: false }),
         ).toBeInTheDocument();
       }
+    });
+  });
+
+  describe('Title formatting', () => {
+    const metadata = {
+      testA: 'stuff',
+      testB: { testC: 'stuff' },
+      testD: [{ testE: 'stuff' }],
+    };
+
+    it('should make keys human readable', async () => {
+      const rendered = render(
+        <StructuredMetadataTable
+          metadata={metadata}
+          options={{ nestedValuesAsYaml: true }}
+        />,
+      );
+      expect(rendered.queryByText(/^Test A/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^Test B/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^Test D/)).toBeInTheDocument();
+
+      // nested content is displayed as yaml via lazy-loaded CodeSnippet
+      await waitFor(
+        () => {
+          expect(rendered.queryByText(/^testC/)).toBeInTheDocument();
+          expect(rendered.queryByText(/testE: stuff/)).toBeInTheDocument();
+        },
+        { timeout: 15000 },
+      );
+    });
+
+    it('should be possible to disable it', async () => {
+      const rendered = render(
+        <StructuredMetadataTable
+          metadata={metadata}
+          options={{ titleFormat: key => key }}
+        />,
+      );
+      expect(rendered.queryByText(/^testA/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^testB/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^testC/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^testD/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^testE/)).toBeInTheDocument();
+    });
+
+    it('should be customizable', async () => {
+      const spongeBobCase = (key: string) =>
+        key
+          .split('')
+          .map((letter, index) => {
+            if (index % 2 === 0) {
+              return letter.toLowerCase();
+            }
+            return letter.toUpperCase();
+          })
+          .join('');
+
+      const rendered = render(
+        <StructuredMetadataTable
+          metadata={metadata}
+          options={{ titleFormat: spongeBobCase, nestedValuesAsYaml: true }}
+        />,
+      );
+      expect(rendered.queryByText(/^tEsTa/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^tEsTb/)).toBeInTheDocument();
+      expect(rendered.queryByText(/^tEsTd/)).toBeInTheDocument();
+
+      // nested content is displayed as yaml via lazy-loaded CodeSnippet
+      await waitFor(
+        () => {
+          expect(rendered.queryByText(/^testC/)).toBeInTheDocument();
+          expect(rendered.queryByText(/^testE/)).toBeInTheDocument();
+        },
+        { timeout: 15000 },
+      );
     });
   });
 });

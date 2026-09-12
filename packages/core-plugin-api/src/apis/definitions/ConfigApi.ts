@@ -13,15 +13,5 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ApiRef, createApiRef } from '../system';
-import { Config } from '@backstage/config';
 
-/**
- * The Config API is used to provide a mechanism to access the
- * runtime configuration of the system.
- */
-export type ConfigApi = Config;
-
-export const configApiRef: ApiRef<ConfigApi> = createApiRef({
-  id: 'core.config',
-});
+export { type ConfigApi, configApiRef } from '@backstage/frontend-plugin-api';

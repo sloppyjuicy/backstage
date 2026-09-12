@@ -14,20 +14,17 @@
  * limitations under the License.
  */
 
-import {
-  Button,
-  createStyles,
-  Drawer,
-  Grid,
-  IconButton,
-  makeStyles,
-  Theme,
-  Typography,
-} from '@material-ui/core';
+import { LogViewer } from '@backstage/core-components';
+import Button from '@material-ui/core/Button';
+import Drawer from '@material-ui/core/Drawer';
+import Grid from '@material-ui/core/Grid';
+import IconButton from '@material-ui/core/IconButton';
+import Typography from '@material-ui/core/Typography';
+import { createStyles, makeStyles, Theme } from '@material-ui/core/styles';
 import Close from '@material-ui/icons/Close';
-import * as React from 'react';
 import { useState } from 'react';
-import { LazyLog } from 'react-lazylog';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { techdocsTranslationRef } from '../../translation';
 
 const useDrawerStyles = makeStyles((theme: Theme) =>
   createStyles({
@@ -45,6 +42,9 @@ const useDrawerStyles = makeStyles((theme: Theme) =>
       height: '100%',
       overflow: 'hidden',
     },
+    logs: {
+      background: theme.palette.background.default,
+    },
   }),
 );
 
@@ -56,6 +56,9 @@ export const TechDocsBuildLogsDrawerContent = ({
   onClose: () => void;
 }) => {
   const classes = useDrawerStyles();
+  const { t } = useTranslationRef(techdocsTranslationRef);
+  const logText =
+    buildLog.length === 0 ? t('buildLogs.waitingForLogs') : buildLog.join('\n');
   return (
     <Grid
       container
@@ -72,26 +75,19 @@ export const TechDocsBuildLogsDrawerContent = ({
         spacing={0}
         wrap="nowrap"
       >
-        <Typography variant="h5">Build Details</Typography>
+        <Typography variant="h5">{t('buildLogs.title')}</Typography>
         <IconButton
           key="dismiss"
-          title="Close the drawer"
+          title={t('buildLogs.closeDrawer')}
           onClick={onClose}
           color="inherit"
         >
           <Close />
         </IconButton>
       </Grid>
-
-      <LazyLog
-        text={
-          buildLog.length === 0 ? 'Waiting for logs...' : buildLog.join('\n')
-        }
-        extraLines={1}
-        follow
-        selectableLines
-        enableSearch
-      />
+      <Grid item xs>
+        <LogViewer text={logText} classes={{ root: classes.logs }} />
+      </Grid>
     </Grid>
   );
 };
@@ -99,11 +95,12 @@ export const TechDocsBuildLogsDrawerContent = ({
 export const TechDocsBuildLogs = ({ buildLog }: { buildLog: string[] }) => {
   const classes = useDrawerStyles();
   const [open, setOpen] = useState(false);
+  const { t } = useTranslationRef(techdocsTranslationRef);
 
   return (
     <>
       <Button color="inherit" onClick={() => setOpen(true)}>
-        Show Build Logs
+        {t('buildLogs.showBuildLogs')}
       </Button>
       <Drawer
         classes={{ paper: classes.paper }}

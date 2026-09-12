@@ -16,26 +16,26 @@
 
 import { Entity } from '@backstage/catalog-model';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import { Button, Dialog, DialogActions, DialogTitle } from '@material-ui/core';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
+import { toError } from '@backstage/errors';
+import { catalogTranslationRef } from '../../alpha/translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
+import { Button, Dialog, DialogFooter, DialogHeader } from '@backstage/ui';
 
-type Props = {
+interface DeleteEntityDialogProps {
   open: boolean;
   onClose: () => any;
   onConfirm: () => any;
   entity: Entity;
-};
+}
 
-export const DeleteEntityDialog = ({
-  open,
-  onClose,
-  onConfirm,
-  entity,
-}: Props) => {
+export function DeleteEntityDialog(props: DeleteEntityDialogProps) {
+  const { open, onClose, onConfirm, entity } = props;
   const [busy, setBusy] = useState(false);
   const catalogApi = useApi(catalogApiRef);
   const alertApi = useApi(alertApiRef);
+  const { t } = useTranslationRef(catalogTranslationRef);
 
   const onDelete = async () => {
     setBusy(true);
@@ -44,30 +44,23 @@ export const DeleteEntityDialog = ({
       await catalogApi.removeEntityByUid(uid!);
       onConfirm();
     } catch (err) {
-      alertApi.post({ message: err.message });
+      alertApi.post({ message: toError(err).message });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Dialog open={open} onClose={onClose}>
-      <DialogTitle id="responsive-dialog-title">
-        Are you sure you want to delete this entity?
-      </DialogTitle>
-      <DialogActions>
-        <Button
-          variant="contained"
-          color="secondary"
-          disabled={busy}
-          onClick={onDelete}
-        >
-          Delete
+    <Dialog isOpen={open} onOpenChange={isOpen => !isOpen && onClose()}>
+      <DialogHeader>{t('deleteEntity.dialogTitle')}</DialogHeader>
+      <DialogFooter>
+        <Button variant="secondary" onPress={onClose}>
+          {t('deleteEntity.cancelButtonTitle')}
         </Button>
-        <Button onClick={onClose} color="primary">
-          Cancel
+        <Button variant="primary" destructive loading={busy} onPress={onDelete}>
+          {t('deleteEntity.deleteButtonTitle')}
         </Button>
-      </DialogActions>
+      </DialogFooter>
     </Dialog>
   );
-};
+}

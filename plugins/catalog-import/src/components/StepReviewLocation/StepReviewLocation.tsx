@@ -14,16 +14,22 @@
  * limitations under the License.
  */
 
+import { stringifyEntityRef } from '@backstage/catalog-model';
+import { Link } from '@backstage/core-components';
+import { configApiRef, useAnalytics, useApi } from '@backstage/core-plugin-api';
+import { toError } from '@backstage/errors';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import { FormHelperText, Grid, Typography } from '@material-ui/core';
+import FormHelperText from '@material-ui/core/FormHelperText';
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
 import LocationOnIcon from '@material-ui/icons/LocationOn';
-import React, { useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
+
 import { BackButton, NextButton } from '../Buttons';
 import { EntityListComponent } from '../EntityListComponent';
 import { PrepareResult, ReviewResult } from '../useImportState';
-
-import { configApiRef, useApi } from '@backstage/core-plugin-api';
-import { Link } from '@backstage/core-components';
+import { catalogImportTranslationRef } from '../../translation';
 
 type Props = {
   prepareResult: PrepareResult;
@@ -36,64 +42,70 @@ export const StepReviewLocation = ({
   onReview,
   onGoBack,
 }: Props) => {
+  const { t } = useTranslationRef(catalogImportTranslationRef);
   const catalogApi = useApi(catalogApiRef);
   const configApi = useApi(configApiRef);
+  const analytics = useAnalytics();
 
-  const appTitle = configApi.getOptional('app.title') || 'Backstage';
+  const appTitle = configApi.getOptionalString('app.title') || 'Backstage';
 
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string>();
-
-  const handleImport = useCallback(async () => {
+  const exists =
+    prepareResult.type === 'locations' &&
+    prepareResult.locations.some(l => l.exists)
+      ? true
+      : false;
+  const handleClick = useCallback(async () => {
     setSubmitted(true);
+    analytics.captureEvent('click', 'import entity');
     try {
-      const result = await Promise.all(
-        prepareResult.locations.map(l =>
-          catalogApi.addLocation({
-            type: 'url',
-            target: l.target,
-            presence:
-              prepareResult.type === 'repository' ? 'optional' : 'required',
+      let refreshed = new Array<{ target: string }>();
+      if (prepareResult.type === 'locations') {
+        refreshed = await Promise.all(
+          prepareResult.locations
+            .filter(l => l.exists)
+            .map(async l => {
+              const ref = stringifyEntityRef(l.entities[0] ?? l);
+              await catalogApi.refreshEntity(ref);
+              return { target: l.target };
+            }),
+        );
+      }
+
+      const locations = await Promise.all(
+        prepareResult.locations
+          .filter((l: unknown) => !(l as { exists?: boolean }).exists)
+          .map(async l => {
+            const result = await catalogApi.addLocation({
+              type: 'url',
+              target: l.target,
+            });
+            return {
+              target: result.location.target,
+              entities: result.entities,
+            };
           }),
-        ),
       );
 
       onReview({
         ...prepareResult,
-        locations: result.map(r => ({
-          target: r.location.target,
-          entities: r.entities,
-        })),
+        ...{ refreshed },
+        locations,
       });
     } catch (e) {
-      // TODO: this error should be handled differently. We add it as 'optional' and
-      //       it is not uncommon that a PR has not been merged yet.
-      if (
-        prepareResult.type === 'repository' &&
-        e.message.startsWith(
-          'Location was added but has no entities specified yet',
-        )
-      ) {
-        onReview({
-          ...prepareResult,
-          locations: prepareResult.locations.map(l => ({
-            target: l.target,
-            entities: [],
-          })),
-        });
-      } else {
-        setError(e.message);
-        setSubmitted(false);
-      }
+      const caughtError = toError(e);
+      setError(caughtError.message);
+      setSubmitted(false);
     }
-  }, [prepareResult, onReview, catalogApi]);
+  }, [prepareResult, onReview, catalogApi, analytics]);
 
   return (
     <>
       {prepareResult.type === 'repository' && (
         <>
           <Typography paragraph>
-            The following Pull Request has been opened:{' '}
+            {t('stepReviewLocation.prepareResult.title')}
             <Link
               to={prepareResult.pullRequest.url}
               target="_blank"
@@ -104,14 +116,15 @@ export const StepReviewLocation = ({
           </Typography>
 
           <Typography paragraph>
-            You can already import the location and {appTitle} will fetch the
-            entities as soon as the Pull Request is merged.
+            {t('stepReviewLocation.prepareResult.description', { appTitle })}
           </Typography>
         </>
       )}
 
       <Typography>
-        The following entities will be added to the catalog:
+        {exists
+          ? t('stepReviewLocation.catalog.exists')
+          : t('stepReviewLocation.catalog.new')}
       </Typography>
 
       <EntityListComponent
@@ -126,9 +139,11 @@ export const StepReviewLocation = ({
         <NextButton
           disabled={submitted}
           loading={submitted}
-          onClick={() => handleImport()}
+          onClick={() => handleClick()}
         >
-          Import
+          {exists
+            ? t('stepReviewLocation.refresh')
+            : t('stepReviewLocation.import')}
         </NextButton>
       </Grid>
     </>

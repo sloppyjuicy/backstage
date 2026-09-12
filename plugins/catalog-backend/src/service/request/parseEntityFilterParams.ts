@@ -15,8 +15,19 @@
  */
 
 import { InputError } from '@backstage/errors';
-import { EntitiesSearchFilter, EntityFilter } from '../../database';
+import { FilterPredicate } from '@backstage/filter-predicates';
 import { parseStringsParam } from './common';
+import { EntitiesSearchFilter } from '@backstage/plugin-catalog-node';
+
+function searchFilterToPredicate(f: EntitiesSearchFilter): FilterPredicate {
+  if (!f.values) {
+    return { [f.key]: { $exists: true } } as FilterPredicate;
+  }
+  if (f.values.length === 1) {
+    return { [f.key]: f.values[0] } as FilterPredicate;
+  }
+  return { [f.key]: { $in: f.values } } as FilterPredicate;
+}
 
 /**
  * Parses the filtering part of a query, like
@@ -24,21 +35,24 @@ import { parseStringsParam } from './common';
  */
 export function parseEntityFilterParams(
   params: Record<string, unknown>,
-): EntityFilter | undefined {
-  // Each filter string is on the form a=b,c=d
+): FilterPredicate | undefined {
   const filterStrings = parseStringsParam(params.filter, 'filter');
   if (!filterStrings) {
     return undefined;
   }
 
-  // Outer array: "any of the inner ones"
-  // Inner arrays: "all of these must match"
-  const filters = filterStrings.map(parseEntityFilterString).filter(Boolean);
+  const filters = filterStrings
+    .map(parseEntityFilterString)
+    .filter((r): r is EntitiesSearchFilter[] => Boolean(r));
   if (!filters.length) {
     return undefined;
   }
 
-  return { anyOf: filters.map(f => ({ allOf: f! })) };
+  const outer: FilterPredicate[] = filters.map(inner => {
+    const predicates = inner.map(searchFilterToPredicate);
+    return predicates.length === 1 ? predicates[0] : { $all: predicates };
+  });
+  return outer.length === 1 ? outer[0] : { $any: outer };
 }
 
 /**
@@ -57,31 +71,36 @@ export function parseEntityFilterString(
     return undefined;
   }
 
-  const filtersByKey: Record<string, EntitiesSearchFilter> = {};
+  const filtersByKey = new Map<string, EntitiesSearchFilter>();
 
   for (const statement of statements) {
     const equalsIndex = statement.indexOf('=');
 
     const key =
-      equalsIndex === -1 ? statement : statement.substr(0, equalsIndex).trim();
+      equalsIndex === -1
+        ? statement
+        : statement.substring(0, equalsIndex).trim();
     const value =
-      equalsIndex === -1 ? undefined : statement.substr(equalsIndex + 1).trim();
+      equalsIndex === -1
+        ? undefined
+        : statement.substring(equalsIndex + 1).trim();
     if (!key) {
       throw new InputError(
         `Invalid filter, '${statement}' is not a valid statement (expected a string on the form a=b or a= or a)`,
       );
     }
 
-    const f =
-      key in filtersByKey ? filtersByKey[key] : (filtersByKey[key] = { key });
+    let f = filtersByKey.get(key);
+    if (!f) {
+      f = { key };
+      filtersByKey.set(key, f);
+    }
 
-    if (value === undefined) {
-      f.matchValueExists = true;
-    } else {
-      f.matchValueIn = f.matchValueIn || [];
-      f.matchValueIn.push(value);
+    if (value !== undefined) {
+      f.values = f.values || [];
+      f.values.push(value);
     }
   }
 
-  return Object.values(filtersByKey);
+  return Array.from(filtersByKey.values());
 }

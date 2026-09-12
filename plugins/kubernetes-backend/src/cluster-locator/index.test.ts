@@ -14,13 +14,24 @@
  * limitations under the License.
  */
 
-import { Config, ConfigReader } from '@backstage/config';
-import { getCombinedClusterDetails } from './index';
+import {
+  ANNOTATION_KUBERNETES_API_SERVER,
+  ANNOTATION_KUBERNETES_API_SERVER_CA,
+  ANNOTATION_KUBERNETES_AUTH_PROVIDER,
+} from '@backstage/plugin-kubernetes-common';
+import { getCombinedClusterSupplier } from './index';
+import {
+  ClusterDetails,
+  AuthenticationStrategy,
+} from '@backstage/plugin-kubernetes-node';
+import { mockCredentials, mockServices } from '@backstage/backend-test-utils';
+import { catalogServiceMock } from '@backstage/plugin-catalog-node/testUtils';
+import { DispatchStrategy } from '../auth';
 
-describe('getCombinedClusterDetails', () => {
+describe('getCombinedClusterSupplier', () => {
   it('should retrieve cluster details from config', async () => {
-    const config: Config = new ConfigReader(
-      {
+    const config = mockServices.rootConfig({
+      data: {
         kubernetes: {
           clusterLocatorMethods: [
             {
@@ -42,32 +53,133 @@ describe('getCombinedClusterDetails', () => {
           ],
         },
       },
-      'ctx',
+    });
+    const mockStrategy: jest.Mocked<AuthenticationStrategy> = {
+      getCredential: jest.fn(),
+      validateCluster: jest.fn().mockReturnValue([]),
+      presentAuthMetadata: jest.fn(),
+    };
+
+    const auth = mockServices.auth();
+    const credentials = mockCredentials.user();
+
+    const clusterSupplier = getCombinedClusterSupplier(
+      config,
+      catalogServiceMock.mock(),
+      mockStrategy,
+      mockServices.logger.mock(),
+      undefined,
+      auth,
     );
+    const result = await clusterSupplier.getClusters({ credentials });
 
-    const result = await getCombinedClusterDetails(config);
-
-    expect(result).toStrictEqual([
+    expect(result).toStrictEqual<ClusterDetails[]>([
       {
         name: 'cluster1',
-        serviceAccountToken: 'token',
         url: 'http://localhost:8080',
-        authProvider: 'serviceAccount',
+        authMetadata: {
+          [ANNOTATION_KUBERNETES_AUTH_PROVIDER]: 'serviceAccount',
+          serviceAccountToken: 'token',
+        },
+        skipMetricsLookup: false,
         skipTLSVerify: false,
+        caData: undefined,
+        caFile: undefined,
       },
       {
         name: 'cluster2',
-        serviceAccountToken: undefined,
         url: 'http://localhost:8081',
-        authProvider: 'google',
+        authMetadata: { [ANNOTATION_KUBERNETES_AUTH_PROVIDER]: 'google' },
+        skipMetricsLookup: false,
         skipTLSVerify: false,
+        caData: undefined,
+        caFile: undefined,
       },
     ]);
   });
 
   it('throws an error when using an unsupported cluster locator', async () => {
-    const config: Config = new ConfigReader(
-      {
+    const config = mockServices.rootConfig({
+      data: { kubernetes: { clusterLocatorMethods: [{ type: 'magic' }] } },
+    });
+
+    const auth = mockServices.auth();
+
+    expect(() =>
+      getCombinedClusterSupplier(
+        config,
+        catalogServiceMock(),
+        new DispatchStrategy({ authStrategyMap: {} }),
+        mockServices.logger.mock(),
+        undefined,
+        auth,
+      ),
+    ).toThrow(
+      new Error('Unsupported kubernetes.clusterLocatorMethods: "magic"'),
+    );
+  });
+
+  it('logs a warning when two clusters have the same name', async () => {
+    const logger = mockServices.logger.mock();
+    const warn = jest.spyOn(logger, 'warn');
+    const config = mockServices.rootConfig({
+      data: {
+        kubernetes: {
+          clusterLocatorMethods: [
+            {
+              type: 'config',
+              clusters: [
+                { name: 'cluster', url: 'url', authProvider: 'authProvider' },
+              ],
+            },
+            { type: 'catalog' },
+          ],
+        },
+      },
+    });
+    const mockStrategy: jest.Mocked<AuthenticationStrategy> = {
+      getCredential: jest.fn(),
+      validateCluster: jest.fn().mockReturnValue([]),
+      presentAuthMetadata: jest.fn(),
+    };
+
+    const auth = mockServices.auth();
+    const credentials = mockCredentials.user();
+
+    const clusterSupplier = getCombinedClusterSupplier(
+      config,
+      catalogServiceMock({
+        entities: [
+          {
+            kind: 'Resource',
+            metadata: {
+              name: 'cluster',
+              annotations: {
+                [ANNOTATION_KUBERNETES_API_SERVER]: 'https://93.184.216.34',
+                [ANNOTATION_KUBERNETES_API_SERVER_CA]: 'mock',
+                [ANNOTATION_KUBERNETES_AUTH_PROVIDER]: 'mock',
+              },
+            },
+            spec: {
+              type: 'kubernetes-cluster',
+            },
+          } as any,
+        ],
+      }),
+      mockStrategy,
+      logger,
+      undefined,
+      auth,
+    );
+
+    await clusterSupplier.getClusters({ credentials });
+
+    expect(warn).toHaveBeenCalledWith(`Duplicate cluster name 'cluster'`);
+  });
+
+  it('rejects when a supplier fails and continueOnError is not set', async () => {
+    const config = mockServices.rootConfig({
+      data: {
         kubernetes: {
           clusterLocatorMethods: [
             {
@@ -75,28 +187,102 @@ describe('getCombinedClusterDetails', () => {
               clusters: [
                 {
                   name: 'cluster1',
-                  serviceAccountToken: 'token',
                   url: 'http://localhost:8080',
                   authProvider: 'serviceAccount',
                 },
-                {
-                  name: 'cluster2',
-                  url: 'http://localhost:8081',
-                  authProvider: 'google',
-                },
               ],
             },
-            {
-              type: 'magic',
-            },
+            { type: 'catalog' },
           ],
         },
       },
-      'ctx',
+    });
+    const mockStrategy: jest.Mocked<AuthenticationStrategy> = {
+      getCredential: jest.fn(),
+      validateCluster: jest.fn().mockReturnValue([]),
+      presentAuthMetadata: jest.fn(),
+    };
+
+    const catalogMock = catalogServiceMock({
+      entities: [],
+    });
+    catalogMock.getEntities = jest
+      .fn()
+      .mockRejectedValue(new Error('catalog down'));
+
+    const auth = mockServices.auth();
+    const credentials = mockCredentials.user();
+
+    const clusterSupplier = getCombinedClusterSupplier(
+      config,
+      catalogMock,
+      mockStrategy,
+      mockServices.logger.mock(),
+      undefined,
+      auth,
     );
 
-    await expect(getCombinedClusterDetails(config)).rejects.toStrictEqual(
-      new Error('Unsupported kubernetes.clusterLocatorMethods: "magic"'),
+    await expect(clusterSupplier.getClusters({ credentials })).rejects.toThrow(
+      'catalog down',
+    );
+  });
+
+  it('returns clusters from successful suppliers when continueOnError is true', async () => {
+    const config = mockServices.rootConfig({
+      data: {
+        kubernetes: {
+          clusterLocatorContinueOnError: true,
+          clusterLocatorMethods: [
+            {
+              type: 'config',
+              clusters: [
+                {
+                  name: 'cluster1',
+                  url: 'http://localhost:8080',
+                  authProvider: 'serviceAccount',
+                },
+              ],
+            },
+            { type: 'catalog' },
+          ],
+        },
+      },
+    });
+    const mockStrategy: jest.Mocked<AuthenticationStrategy> = {
+      getCredential: jest.fn(),
+      validateCluster: jest.fn().mockReturnValue([]),
+      presentAuthMetadata: jest.fn(),
+    };
+
+    const catalogMock = catalogServiceMock({
+      entities: [],
+    });
+    catalogMock.getEntities = jest
+      .fn()
+      .mockRejectedValue(new Error('catalog down'));
+
+    const logger = mockServices.logger.mock();
+    const errorSpy = jest.spyOn(logger, 'error');
+    const auth = mockServices.auth();
+    const credentials = mockCredentials.user();
+
+    const clusterSupplier = getCombinedClusterSupplier(
+      config,
+      catalogMock,
+      mockStrategy,
+      logger,
+      undefined,
+      auth,
+    );
+    const result = await clusterSupplier.getClusters({ credentials });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('cluster1');
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Failed to retrieve clusters from cluster locator method',
+      ),
+      expect.any(Error),
     );
   });
 });

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { CopyTextButton } from './CopyTextButton';
 
 export default {
   title: 'Inputs/CopyTextButton',
   component: CopyTextButton,
+  tags: ['!manifest'],
 };
 
 export const Default = () => (
@@ -38,5 +38,12 @@ export const LongerTooltipDelay = () => (
     text="The text to copy to clipboard"
     tooltipText="Waiting 3s before removing tooltip"
     tooltipDelay={3000}
+  />
+);
+
+export const WithAriaLabel = () => (
+  <CopyTextButton
+    text="The text to copy to clipboard"
+    aria-label="This is an aria label"
   />
 );

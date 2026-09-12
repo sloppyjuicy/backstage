@@ -15,7 +15,40 @@
  */
 
 import parseGitUrl from 'git-url-parse';
+import { trimEnd } from 'lodash';
 import { ScmIntegration, ScmIntegrationsGroup } from './types';
+
+/**
+ * Wraps git-url-parse and rejects URLs whose filepath contains path traversal
+ * segments. Without this check, a URL like
+ * `https://github.com/o/r/blob/main/%2e%2e%2f%2e%2e%2fuser/repos` would be
+ * decoded to `../../user/repos` and could escape the expected API path when
+ * interpolated into provider API URLs.
+ */
+export function parseGitUrlSafe(url: string) {
+  const parsed = parseGitUrl(url);
+  if (parsed.filepath) {
+    let decoded = parsed.filepath;
+    let previous;
+    do {
+      previous = decoded;
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch {
+        break;
+      }
+    } while (decoded !== previous);
+
+    if (
+      decoded.split('/').some(segment => segment === '..' || segment === '.')
+    ) {
+      throw new Error(
+        'Invalid SCM URL: path traversal is not allowed in the URL',
+      );
+    }
+  }
+  return parsed;
+}
 
 /** Checks whether the given argument is a valid URL hostname */
 export function isValidHost(host: string): boolean {
@@ -46,7 +79,7 @@ export function basicIntegrations<T extends ScmIntegration>(
     byUrl(url: string | URL): T | undefined {
       try {
         const parsed = typeof url === 'string' ? new URL(url) : url;
-        return integrations.find(i => getHost(i) === parsed.hostname);
+        return integrations.find(i => getHost(i) === parsed.host);
       } catch {
         return undefined;
       }
@@ -58,8 +91,10 @@ export function basicIntegrations<T extends ScmIntegration>(
 }
 
 /**
- * Default implementation of ScmIntegration.resolveUrl, that only works with
- * URL pathname based providers.
+ * Default implementation of {@link ScmIntegration} `resolveUrl`, that only
+ * works with URL pathname based providers.
+ *
+ * @public
  */
 export function defaultScmResolveUrl(options: {
   url: string;
@@ -81,11 +116,14 @@ export function defaultScmResolveUrl(options: {
 
   if (url.startsWith('/')) {
     // If it is an absolute path, move relative to the repo root
-    const { filepath } = parseGitUrl(base);
-    updated = new URL(base);
-    const repoRootPath = updated.pathname
-      .substring(0, updated.pathname.length - filepath.length)
-      .replace(/\/+$/, '');
+    const { href, filepath } = parseGitUrlSafe(base);
+
+    updated = new URL(href);
+
+    const repoRootPath = trimEnd(
+      updated.pathname.substring(0, updated.pathname.length - filepath.length),
+      '/',
+    );
     updated.pathname = `${repoRootPath}${url}`;
   } else {
     // For relative URLs, just let the default URL constructor handle the

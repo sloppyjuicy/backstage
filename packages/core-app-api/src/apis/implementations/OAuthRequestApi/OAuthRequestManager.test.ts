@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import ProviderIcon from '@material-ui/icons/AcUnit';
 import { OAuthRequestManager } from './OAuthRequestManager';
 
 describe('OAuthRequestManager', () => {
@@ -26,20 +25,21 @@ describe('OAuthRequestManager', () => {
 
     const requester = manager.createAuthRequester({
       provider: {
+        id: 'my-provider',
         title: 'My Provider',
-        icon: ProviderIcon,
+        icon: () => null,
       },
       onAuthRequest: async () => 'hello',
     });
 
     expect(reqSpy).toHaveBeenCalledTimes(0);
     await 'a tick';
-    expect(reqSpy).toHaveBeenCalledTimes(2);
+    expect(reqSpy).toHaveBeenCalledTimes(1);
     expect(reqSpy).toHaveBeenLastCalledWith([]);
 
     const req = requester(new Set(['my-scope']));
 
-    expect(reqSpy).toHaveBeenCalledTimes(3);
+    expect(reqSpy).toHaveBeenCalledTimes(2);
     expect(reqSpy).toHaveBeenLastCalledWith([
       expect.objectContaining({
         reject: expect.any(Function),
@@ -51,7 +51,7 @@ describe('OAuthRequestManager', () => {
       'not yet',
     );
 
-    const [request] = reqSpy.mock.calls[2][0];
+    const [request] = reqSpy.mock.calls[1][0];
     request.trigger();
 
     await expect(req).resolves.toBe('hello');

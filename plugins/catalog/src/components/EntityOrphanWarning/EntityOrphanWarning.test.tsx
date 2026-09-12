@@ -14,24 +14,13 @@
  * limitations under the License.
  */
 
-import {
-  CatalogApi,
-  catalogApiRef,
-  catalogRouteRef,
-  EntityProvider,
-} from '@backstage/plugin-catalog-react';
-
-import { renderInTestApp } from '@backstage/test-utils';
-import React from 'react';
+import { catalogApiRef, EntityProvider } from '@backstage/plugin-catalog-react';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
+import { screen } from '@testing-library/react';
+import { rootRouteRef } from '../../routes';
 import { EntityOrphanWarning } from './EntityOrphanWarning';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
 
 describe('<EntityOrphanWarning />', () => {
-  const catalogClient: jest.Mocked<CatalogApi> = {
-    removeEntityByUid: jest.fn(),
-  } as any;
-  const apis = ApiRegistry.with(catalogApiRef, catalogClient);
-
   it('renders EntityOrphanWarning if the entity is orphan', async () => {
     const entity = {
       apiVersion: 'v1',
@@ -49,22 +38,34 @@ describe('<EntityOrphanWarning />', () => {
       },
     };
 
-    const { getByText } = await renderInTestApp(
-      <ApiProvider apis={apis}>
+    await renderInTestApp(
+      <TestApiProvider
+        apis={[
+          [
+            catalogApiRef,
+            {
+              removeEntityByUid: jest.fn(),
+            },
+          ],
+        ]}
+      >
         <EntityProvider entity={entity}>
           <EntityOrphanWarning />
         </EntityProvider>
-      </ApiProvider>,
+      </TestApiProvider>,
       {
         mountedRoutes: {
-          '/create': catalogRouteRef,
+          '/create': rootRouteRef,
         },
       },
     );
     expect(
-      getByText(
-        'This entity is not referenced by any location and is therefore not receiving updates. Click here to delete.',
+      screen.getByText(
+        'This entity is not referenced by any location and is therefore not receiving updates.',
       ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Delete entity' }),
     ).toBeInTheDocument();
   });
 });

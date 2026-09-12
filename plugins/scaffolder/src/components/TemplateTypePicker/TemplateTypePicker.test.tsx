@@ -14,20 +14,20 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { fireEvent } from '@testing-library/react';
 import { capitalize } from 'lodash';
-import { CatalogApi } from '@backstage/catalog-client';
 import { Entity } from '@backstage/catalog-model';
 import { TemplateTypePicker } from './TemplateTypePicker';
 import {
   catalogApiRef,
   EntityKindFilter,
-  MockEntityListContextProvider,
 } from '@backstage/plugin-catalog-react';
-import { AlertApi, alertApiRef } from '@backstage/core-plugin-api';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
-import { renderWithEffects } from '../../../../../packages/test-utils-core/src';
+import { MockEntityListContextProvider } from '@backstage/plugin-catalog-react/testUtils';
+import { alertApiRef } from '@backstage/core-plugin-api';
+import { ApiProvider } from '@backstage/core-app-api';
+import { renderInTestApp, TestApiRegistry } from '@backstage/test-utils';
+import { mockApis } from '@backstage/frontend-test-utils';
+import { GetEntityFacetsResponse } from '@backstage/catalog-client';
 
 const entities: Entity[] = [
   {
@@ -62,30 +62,30 @@ const entities: Entity[] = [
   },
 ];
 
-const apis = ApiRegistry.from([
+const apis = TestApiRegistry.from(
   [
     catalogApiRef,
     {
-      getEntities: jest
-        .fn()
-        .mockImplementation(() => Promise.resolve({ items: entities })),
-    } as unknown as CatalogApi,
+      getEntityFacets: jest.fn().mockResolvedValue({
+        facets: {
+          'spec.type': entities.map(e => ({
+            value: (e.spec as any).type,
+            count: 1,
+          })),
+        },
+      } as GetEntityFacetsResponse),
+    },
   ],
-  [
-    alertApiRef,
-    {
-      post: jest.fn(),
-    } as unknown as AlertApi,
-  ],
-]);
+  [alertApiRef, mockApis.alert()],
+);
 
 describe('<TemplateTypePicker/>', () => {
   it('renders available entity types', async () => {
-    const rendered = await renderWithEffects(
+    const rendered = await renderInTestApp(
       <ApiProvider apis={apis}>
         <MockEntityListContextProvider
           value={{
-            filters: { kind: new EntityKindFilter('template') },
+            filters: { kind: new EntityKindFilter('template', 'Template') },
             backendEntities: entities,
           }}
         >
@@ -94,6 +94,7 @@ describe('<TemplateTypePicker/>', () => {
       </ApiProvider>,
     );
     expect(rendered.getByText('Categories')).toBeInTheDocument();
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
 
     entities.forEach(entity => {
       expect(
@@ -103,11 +104,11 @@ describe('<TemplateTypePicker/>', () => {
   });
 
   it('sets the selected type filters', async () => {
-    const rendered = await renderWithEffects(
+    const rendered = await renderInTestApp(
       <ApiProvider apis={apis}>
         <MockEntityListContextProvider
           value={{
-            filters: { kind: new EntityKindFilter('template') },
+            filters: { kind: new EntityKindFilter('template', 'Template') },
             backendEntities: entities,
           }}
         >
@@ -116,22 +117,27 @@ describe('<TemplateTypePicker/>', () => {
       </ApiProvider>,
     );
 
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
     expect(rendered.getByLabelText('Service')).not.toBeChecked();
     expect(rendered.getByLabelText('Website')).not.toBeChecked();
 
     fireEvent.click(rendered.getByLabelText('Service'));
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
     expect(rendered.getByLabelText('Service')).toBeChecked();
     expect(rendered.getByLabelText('Website')).not.toBeChecked();
 
     fireEvent.click(rendered.getByLabelText('Website'));
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
     expect(rendered.getByLabelText('Service')).toBeChecked();
     expect(rendered.getByLabelText('Website')).toBeChecked();
 
     fireEvent.click(rendered.getByLabelText('Service'));
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
     expect(rendered.getByLabelText('Service')).not.toBeChecked();
     expect(rendered.getByLabelText('Website')).toBeChecked();
 
     fireEvent.click(rendered.getByLabelText('Website'));
+    fireEvent.click(rendered.getByTestId('categories-picker-expand'));
     expect(rendered.getByLabelText('Service')).not.toBeChecked();
     expect(rendered.getByLabelText('Website')).not.toBeChecked();
   });

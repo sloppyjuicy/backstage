@@ -14,34 +14,82 @@
  * limitations under the License.
  */
 
-import { Entity, ENTITY_DEFAULT_NAMESPACE } from '@backstage/catalog-model';
+import {
+  Entity,
+  DEFAULT_NAMESPACE,
+  CompoundEntityRef,
+  parseEntityRef,
+} from '@backstage/catalog-model';
 import { createRouteRef } from '@backstage/core-plugin-api';
+import { getOrCreateGlobalSingleton } from '@backstage/version-bridge';
 
-const NoIcon = () => null;
+/**
+ * A stable route ref that points to the catalog page for an individual entity.
+ *
+ * This `RouteRef` can be imported and used directly, and does not need to be referenced
+ * via an `ExternalRouteRef`.
+ *
+ * If you want to replace the `EntityPage` from `@backstage/catalog-plugin` in your app,
+ * you need to use the `entityRouteRef` as the mount point instead of your own.
+ * @public
+ */
+export const entityRouteRef = getOrCreateGlobalSingleton(
+  'catalog:entity-route-ref',
+  () =>
+    createRouteRef({
+      id: 'catalog:entity',
+      params: ['namespace', 'kind', 'name'],
+    }),
+);
 
-// TODO(Rugvip): Move these route refs back to the catalog plugin once we're all ported to using external routes
-export const rootRoute = createRouteRef({
-  icon: NoIcon,
-  path: '',
-  title: 'Catalog',
-});
-export const catalogRouteRef = rootRoute;
+/**
+ * Configurable options for `entityRouteParams`
+ * @public
+ */
+export type EntityRouteParamsOptions = {
+  encodeParams?: boolean;
+};
 
-export const entityRoute = createRouteRef({
-  icon: NoIcon,
-  path: ':namespace/:kind/:name/*',
-  title: 'Entity',
-  params: ['namespace', 'kind', 'name'],
-});
-export const entityRouteRef = entityRoute;
+/**
+ * Utility function to get suitable route params for entityRoute, given an
+ * @public
+ */
+export function entityRouteParams(
+  entityOrRef: Entity | CompoundEntityRef | string,
+  options?: EntityRouteParamsOptions,
+) {
+  let kind;
+  let namespace;
+  let name;
 
-// Utility function to get suitable route params for entityRoute, given an
-// entity instance
-export function entityRouteParams(entity: Entity) {
+  if (typeof entityOrRef === 'string') {
+    const parsed = parseEntityRef(entityOrRef);
+    kind = parsed.kind;
+    namespace = parsed.namespace;
+    name = parsed.name;
+  } else if ('metadata' in entityOrRef) {
+    kind = entityOrRef.kind;
+    namespace = entityOrRef.metadata.namespace;
+    name = entityOrRef.metadata.name;
+  } else {
+    kind = entityOrRef.kind;
+    namespace = entityOrRef.namespace;
+    name = entityOrRef.name;
+  }
+
+  kind = kind.toLowerCase();
+  namespace = namespace?.toLowerCase() ?? DEFAULT_NAMESPACE;
+
+  const { encodeParams = false } = options || {};
+  if (encodeParams) {
+    kind = encodeURIComponent(kind);
+    namespace = encodeURIComponent(namespace);
+    name = encodeURIComponent(name);
+  }
+
   return {
-    kind: entity.kind.toLowerCase(),
-    namespace:
-      entity.metadata.namespace?.toLowerCase() ?? ENTITY_DEFAULT_NAMESPACE,
-    name: entity.metadata.name,
+    kind,
+    namespace,
+    name,
   } as const;
 }

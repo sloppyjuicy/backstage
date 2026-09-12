@@ -14,16 +14,20 @@
  * limitations under the License.
  */
 
-import React, { PropsWithChildren } from 'react';
-import { renderHook, act } from '@testing-library/react-hooks';
-import { useStarredEntities } from './useStarredEntities';
-import { storageApiRef, StorageApi } from '@backstage/core-plugin-api';
-import { MockErrorApi } from '@backstage/test-utils';
 import { Entity } from '@backstage/catalog-model';
-import { ApiProvider, ApiRegistry, WebStorage } from '@backstage/core-app-api';
+import { TestApiProvider } from '@backstage/test-utils';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { PropsWithChildren, ComponentType } from 'react';
+import {
+  starredEntitiesApiRef,
+  StarredEntitiesApi,
+  MockStarredEntitiesApi,
+} from '../apis';
+import { useStarredEntities } from './useStarredEntities';
 
 describe('useStarredEntities', () => {
-  let mockStorage: StorageApi | undefined;
+  let mockApi: StarredEntitiesApi;
+  let wrapper: ComponentType<PropsWithChildren<{}>>;
 
   const mockEntity: Entity = {
     apiVersion: '1',
@@ -42,40 +46,46 @@ describe('useStarredEntities', () => {
     },
   };
 
-  const wrapper = ({ children }: PropsWithChildren<{}>) => {
-    return (
-      <ApiProvider apis={ApiRegistry.with(storageApiRef, mockStorage)}>
-        {children}
-      </ApiProvider>
-    );
-  };
-
   beforeEach(() => {
-    mockStorage = new WebStorage('@backstage', new MockErrorApi()).forBucket(
-      Date.now().toString(), // TODO(blam): need something that changes every test run for now until the MockStorage is implemented
+    mockApi = new MockStarredEntitiesApi();
+    wrapper = (props: PropsWithChildren<{}>) => (
+      <TestApiProvider apis={[[starredEntitiesApiRef, mockApi]]}>
+        {props.children}
+      </TestApiProvider>
     );
   });
-  it('should return an empty set for when there is no items in storage', async () => {
-    const { result } = renderHook(() => useStarredEntities(), { wrapper });
 
-    expect(result.current.starredEntities.size).toBe(0);
+  it('should return an empty set', async () => {
+    const { result } = renderHook(() => useStarredEntities(), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.starredEntities.size).toBe(0);
+    });
   });
-  it('should return a set with the current items when there are items in storage', async () => {
+
+  it('should return a set with the current items', async () => {
     const expectedIds = ['i', 'am', 'some', 'test', 'ids'];
-    const store = mockStorage?.forBucket('settings');
-    await store?.set('starredEntities', expectedIds);
-
-    const { result } = renderHook(() => useStarredEntities(), { wrapper });
-
-    for (const item of expectedIds) {
-      expect(result.current.starredEntities.has(item)).toBeTruthy();
+    for (const id of expectedIds) {
+      mockApi.toggleStarred(id);
     }
+
+    const { result } = renderHook(() => useStarredEntities(), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      for (const item of expectedIds) {
+        expect(result.current.starredEntities.has(item)).toBeTruthy();
+      }
+    });
   });
+
   it('should listen to changes when the storage is set elsewhere', async () => {
-    const { result, waitForNextUpdate } = renderHook(
-      () => useStarredEntities(),
-      { wrapper },
-    );
+    const { result } = renderHook(() => useStarredEntities(), {
+      wrapper,
+    });
 
     expect(result.current.starredEntities.size).toBe(0);
     expect(result.current.isStarredEntity(mockEntity)).toBeFalsy();
@@ -84,16 +94,19 @@ describe('useStarredEntities', () => {
     // catch when the hook re-renders with the latest data
     setTimeout(() => result.current.toggleStarredEntity(mockEntity), 1);
 
-    await waitForNextUpdate();
+    await waitFor(() => {
+      expect(result.current.starredEntities.size).toBe(1);
+    });
 
-    expect(result.current.starredEntities.size).toBe(1);
     expect(result.current.isStarredEntity(mockEntity)).toBeTruthy();
   });
 
   it('should write new entries to the local store when adding a toggling entity', async () => {
-    const { result } = renderHook(() => useStarredEntities(), { wrapper });
+    const { result } = renderHook(() => useStarredEntities(), {
+      wrapper,
+    });
 
-    act(() => {
+    await act(async () => {
       result.current.toggleStarredEntity(mockEntity);
     });
 
@@ -102,9 +115,11 @@ describe('useStarredEntities', () => {
   });
 
   it('should remove an existing entity when toggling entries', async () => {
-    const { result } = renderHook(() => useStarredEntities(), { wrapper });
+    const { result } = renderHook(() => useStarredEntities(), {
+      wrapper,
+    });
 
-    act(() => {
+    await act(async () => {
       result.current.toggleStarredEntity(mockEntity);
       result.current.toggleStarredEntity(secondMockEntity);
       result.current.toggleStarredEntity(mockEntity);

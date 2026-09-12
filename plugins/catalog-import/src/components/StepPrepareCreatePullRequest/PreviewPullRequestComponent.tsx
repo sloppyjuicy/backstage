@@ -14,24 +14,41 @@
  * limitations under the License.
  */
 
-import { Card, CardContent, CardHeader } from '@material-ui/core';
-import React from 'react';
 import { MarkdownContent } from '@backstage/core-components';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import Card from '@material-ui/core/Card';
+import CardContent from '@material-ui/core/CardContent';
+import CardHeader from '@material-ui/core/CardHeader';
 
-type Props = {
+import { catalogImportTranslationRef } from '../../translation';
+
+/**
+ * Props for {@link PreviewPullRequestComponent}.
+ *
+ * @public
+ */
+export interface PreviewPullRequestComponentProps {
   title: string;
   description: string;
   classes?: { card?: string; cardContent?: string };
-};
+}
 
-export const PreviewPullRequestComponent = ({
-  title,
-  description,
-  classes,
-}: Props) => {
+/**
+ * Previews a pull request.
+ *
+ * @public
+ */
+export const PreviewPullRequestComponent = (
+  props: PreviewPullRequestComponentProps,
+) => {
+  const { title, description, classes } = props;
+  const { t } = useTranslationRef(catalogImportTranslationRef);
   return (
     <Card variant="outlined" className={classes?.card}>
-      <CardHeader title={title} subheader="Create a new Pull Request" />
+      <CardHeader
+        title={title}
+        subheader={t('stepPrepareCreatePullRequest.previewPr.subheader')}
+      />
       <CardContent className={classes?.cardContent}>
         <MarkdownContent content={description} />
       </CardContent>

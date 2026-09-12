@@ -15,36 +15,75 @@
  */
 
 import { ApiEntity, RELATION_HAS_PART } from '@backstage/catalog-model';
-import { Typography } from '@material-ui/core';
+import Typography from '@material-ui/core/Typography';
 import {
   EntityTable,
   useEntity,
   useRelatedEntities,
 } from '@backstage/plugin-catalog-react';
-import React from 'react';
-import { createSpecApiTypeColumn } from './presets';
+import {
+  EntityRelationCard,
+  EntityColumnConfig,
+} from '@backstage/plugin-catalog-react/alpha';
+import { useMemo } from 'react';
+import { createSpecApiTypeColumn, getHasApisColumnConfig } from './presets';
 import {
   CodeSnippet,
   InfoCard,
+  InfoCardVariants,
   Link,
   Progress,
   TableColumn,
+  TableOptions,
   WarningPanel,
 } from '@backstage/core-components';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import { apiDocsTranslationRef } from '../../translation';
 
-type Props = {
-  variant?: 'gridItem';
-};
+/** @public */
+export interface HasApisCardProps {
+  title?: string;
+  columnConfig?: EntityColumnConfig[];
+}
 
-const columns: TableColumn<ApiEntity>[] = [
-  EntityTable.columns.createEntityRefColumn({ defaultKind: 'API' }),
-  EntityTable.columns.createOwnerColumn(),
-  EntityTable.columns.createSpecLifecycleColumn(),
-  createSpecApiTypeColumn(),
-  EntityTable.columns.createMetadataDescriptionColumn(),
-];
+/**
+ * Props for the legacy MUI-based rendering.
+ * @deprecated Use {@link HasApisCardProps} instead.
+ * @public
+ */
+export interface HasApisCardLegacyProps {
+  title?: string;
+  /** @deprecated Use `columnConfig` instead. */
+  variant?: InfoCardVariants;
+  /** @deprecated Use `columnConfig` instead. */
+  columns?: TableColumn<ApiEntity>[];
+  /** @deprecated Use `columnConfig` instead. */
+  tableOptions?: TableOptions;
+}
 
-export const HasApisCard = ({ variant = 'gridItem' }: Props) => {
+function isLegacyProps(
+  props: HasApisCardProps | HasApisCardLegacyProps,
+): props is HasApisCardLegacyProps {
+  return 'variant' in props || 'columns' in props || 'tableOptions' in props;
+}
+
+function HasApisCardLegacy(props: HasApisCardLegacyProps) {
+  const { t } = useTranslationRef(apiDocsTranslationRef);
+  const presetColumns: TableColumn<ApiEntity>[] = useMemo(() => {
+    return [
+      EntityTable.columns.createEntityRefColumn({ defaultKind: 'API' }),
+      EntityTable.columns.createOwnerColumn(),
+      createSpecApiTypeColumn(t),
+      EntityTable.columns.createSpecLifecycleColumn(),
+      EntityTable.columns.createMetadataDescriptionColumn(),
+    ];
+  }, [t]);
+  const {
+    variant = 'gridItem',
+    title = t('hasApisCard.title'),
+    columns = presetColumns,
+    tableOptions = {},
+  } = props;
   const { entity } = useEntity();
   const { entities, loading, error } = useRelatedEntities(entity, {
     type: RELATION_HAS_PART,
@@ -53,7 +92,7 @@ export const HasApisCard = ({ variant = 'gridItem' }: Props) => {
 
   if (loading) {
     return (
-      <InfoCard variant={variant} title="APIs">
+      <InfoCard variant={variant} title={title}>
         <Progress />
       </InfoCard>
     );
@@ -61,10 +100,10 @@ export const HasApisCard = ({ variant = 'gridItem' }: Props) => {
 
   if (error || !entities) {
     return (
-      <InfoCard variant={variant} title="APIs">
+      <InfoCard variant={variant} title={title}>
         <WarningPanel
           severity="error"
-          title="Could not load APIs"
+          title={t('hasApisCard.error.title')}
           message={<CodeSnippet text={`${error}`} language="text" />}
         />
       </InfoCard>
@@ -73,23 +112,60 @@ export const HasApisCard = ({ variant = 'gridItem' }: Props) => {
 
   return (
     <EntityTable
-      title="APIs"
+      title={title}
       variant={variant}
       emptyContent={
         <div style={{ textAlign: 'center' }}>
           <Typography variant="body1">
-            This {entity.kind.toLocaleLowerCase('en-US')} does not contain any
-            APIs.
+            {t('hasApisCard.emptyContent.title', {
+              entity: entity.kind.toLowerCase(),
+            })}
           </Typography>
           <Typography variant="body2">
             <Link to="https://backstage.io/docs/features/software-catalog/descriptor-format#kind-api">
-              Learn how to change this.
+              {t('apisCardHelpLinkTitle')}
             </Link>
           </Typography>
         </div>
       }
       columns={columns}
+      tableOptions={tableOptions}
       entities={entities as ApiEntity[]}
+    />
+  );
+}
+
+/**
+ * @public
+ */
+export const HasApisCard = (
+  props: HasApisCardProps | HasApisCardLegacyProps,
+) => {
+  const { t } = useTranslationRef(apiDocsTranslationRef);
+  const { entity } = useEntity();
+
+  if (isLegacyProps(props)) {
+    return <HasApisCardLegacy {...props} />;
+  }
+
+  const {
+    title = t('hasApisCard.title'),
+    columnConfig = getHasApisColumnConfig(t),
+  } = props;
+
+  return (
+    <EntityRelationCard
+      title={title}
+      entityKind="API"
+      relationType={RELATION_HAS_PART}
+      columnConfig={columnConfig}
+      emptyState={{
+        message: t('hasApisCard.emptyContent.title', {
+          entity: entity.kind.toLowerCase(),
+        }),
+        helpLink:
+          'https://backstage.io/docs/features/software-catalog/descriptor-format#kind-api',
+      }}
     />
   );
 };

@@ -14,20 +14,94 @@
  * limitations under the License.
  */
 
-import { GroupEntity } from '@backstage/catalog-model';
-import {
-  CatalogApi,
-  catalogApiRef,
-  EntityProvider,
-} from '@backstage/plugin-catalog-react';
-import { renderInTestApp } from '@backstage/test-utils';
-import { queryByText } from '@testing-library/react';
-import React from 'react';
+import { Entity, GroupEntity, UserEntity } from '@backstage/catalog-model';
+import { catalogApiRef, EntityProvider } from '@backstage/plugin-catalog-react';
+import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
+import { queryByText, screen } from '@testing-library/react';
+import { catalogIndexRouteRef } from '../../../routes';
 import { OwnershipCard } from './OwnershipCard';
-import { ApiProvider, ApiRegistry } from '@backstage/core-app-api';
+import { catalogApiMock } from '@backstage/plugin-catalog-react/testUtils';
+
+const items = [
+  {
+    apiVersion: 'backstage.io/v1alpha1',
+    kind: 'API',
+    metadata: {
+      name: 'my-api',
+    },
+    spec: {
+      type: 'openapi',
+    },
+    relations: [
+      {
+        type: 'ownedBy',
+        targetRef: 'group:default/my-team',
+      },
+    ],
+  },
+  {
+    kind: 'Resource',
+    metadata: {
+      name: 'my-resource',
+    },
+    spec: {
+      type: 'database',
+    },
+    relations: [
+      {
+        type: 'ownedBy',
+        targetRef: 'group:default/my-team',
+      },
+    ],
+  },
+  {
+    kind: 'Component',
+    metadata: {
+      name: 'my-service',
+    },
+    spec: {
+      type: 'service',
+    },
+    relations: [
+      {
+        type: 'ownedBy',
+        targetRef: 'group:default/my-team',
+      },
+    ],
+  },
+  {
+    kind: 'Component',
+    metadata: {
+      name: 'my-library',
+      namespace: 'other-namespace',
+    },
+    spec: {
+      type: 'library',
+    },
+    relations: [
+      {
+        type: 'ownedBy',
+        targetRef: 'group:default/my-team',
+      },
+    ],
+  },
+  {
+    apiVersion: 'backstage.io/v1alpha1',
+    kind: 'System',
+    metadata: {
+      name: 'my-system',
+    },
+    relations: [
+      {
+        type: 'ownedBy',
+        targetRef: 'group:default/my-team',
+      },
+    ],
+  },
+] as Entity[];
 
 describe('OwnershipCard', () => {
-  const userEntity: GroupEntity = {
+  const groupEntity: GroupEntity = {
     apiVersion: 'backstage.io/v1alpha1',
     kind: 'Group',
     metadata: {
@@ -40,114 +114,322 @@ describe('OwnershipCard', () => {
     relations: [
       {
         type: 'memberOf',
-        target: {
-          kind: 'group',
-          name: 'ExampleGroup',
-          namespace: 'default',
-        },
+        targetRef: 'group:default/examplegroup',
+      },
+    ],
+  };
+
+  const userEntity: UserEntity = {
+    apiVersion: 'backstage.io/v1alpha1',
+    kind: 'User',
+    metadata: {
+      name: 'the-user',
+    },
+    spec: {
+      memberOf: ['my-team'],
+    },
+    relations: [
+      {
+        type: 'memberOf',
+        targetRef: 'group:default/my-team',
+      },
+      {
+        type: 'memberOf',
+        targetRef: 'group:custom/some-team',
       },
     ],
   };
 
   it('displays entity counts', async () => {
-    const catalogApi: jest.Mocked<CatalogApi> = {
-      getEntities: jest.fn(),
-    } as any;
-
-    catalogApi.getEntities.mockResolvedValue({
-      items: [
-        {
-          kind: 'API',
-          metadata: {
-            name: 'my-api',
-          },
-          spec: {
-            type: 'openapi',
-          },
-          relations: [
-            {
-              type: 'ownedBy',
-              target: {
-                name: 'my-team',
-                namespace: 'default',
-                kind: 'Group',
-              },
-            },
-          ],
-        },
-        {
-          kind: 'Component',
-          metadata: {
-            name: 'my-service',
-          },
-          spec: {
-            type: 'service',
-          },
-          relations: [
-            {
-              type: 'ownedBy',
-              target: {
-                name: 'my-team',
-                namespace: 'default',
-                kind: 'Group',
-              },
-            },
-          ],
-        },
-        {
-          kind: 'Component',
-          metadata: {
-            name: 'my-library',
-            namespace: 'other-namespace',
-          },
-          spec: {
-            type: 'library',
-          },
-          relations: [
-            {
-              type: 'ownedBy',
-              target: {
-                name: 'my-team',
-                namespace: 'default',
-                kind: 'Group',
-              },
-            },
-          ],
-        },
-      ] as any,
-    });
+    const catalogApi = catalogApiMock({ entities: items });
+    const mockedGetEntities = jest.spyOn(catalogApi, 'getEntities');
 
     const { getByText } = await renderInTestApp(
-      <ApiProvider apis={ApiRegistry.with(catalogApiRef, catalogApi)}>
-        <EntityProvider entity={userEntity}>
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+        <EntityProvider entity={groupEntity}>
           <OwnershipCard />
         </EntityProvider>
-      </ApiProvider>,
+      </TestApiProvider>,
+      {
+        mountedRoutes: {
+          '/create': catalogIndexRouteRef,
+        },
+      },
     );
 
-    expect(getByText('Services')).toBeInTheDocument();
+    expect(mockedGetEntities).toHaveBeenCalledWith({
+      filter: [
+        {
+          kind: ['Component', 'API', 'System', 'Resource'],
+          'relations.ownedBy': ['group:default/my-team'],
+        },
+      ],
+      fields: [
+        'kind',
+        'metadata.name',
+        'metadata.namespace',
+        'spec.type',
+        'relations',
+      ],
+    });
+
+    expect(getByText('OPENAPI')).toBeInTheDocument();
     expect(
-      queryByText(getByText('Services').parentElement!, '1'),
+      queryByText(getByText('OPENAPI').closest('a')!, '1'),
     ).toBeInTheDocument();
-    expect(getByText('Documentation')).toBeInTheDocument();
+    expect(getByText('SERVICE')).toBeInTheDocument();
     expect(
-      queryByText(getByText('Documentation').parentElement!, '0'),
+      queryByText(getByText('SERVICE').closest('a')!, '1'),
     ).toBeInTheDocument();
-    expect(getByText('APIs')).toBeInTheDocument();
+    expect(getByText('LIBRARY')).toBeInTheDocument();
     expect(
-      queryByText(getByText('APIs').parentElement!, '1'),
+      queryByText(getByText('LIBRARY').closest('a')!, '1'),
     ).toBeInTheDocument();
-    expect(getByText('Libraries')).toBeInTheDocument();
+    expect(getByText('SYSTEM')).toBeInTheDocument();
     expect(
-      queryByText(getByText('Libraries').parentElement!, '1'),
+      queryByText(getByText('SYSTEM').closest('a')!, '1'),
     ).toBeInTheDocument();
-    expect(getByText('Websites')).toBeInTheDocument();
+  });
+
+  it('uses unique keys for matching types of different kinds', async () => {
+    const catalogApi = catalogApiMock({
+      entities: [
+        {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Component',
+          metadata: { name: 'my-service' },
+          spec: { type: 'service' },
+        },
+        {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Resource',
+          metadata: { name: 'service-resource' },
+          spec: { type: 'service' },
+        },
+      ],
+    });
+    const consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={groupEntity}>
+            <OwnershipCard />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      await expect(screen.findAllByText('SERVICE')).resolves.toHaveLength(2);
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
+        'Encountered two children with the same key',
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('applies CustomFilterDefinition', async () => {
+    const catalogApi = catalogApiMock({ entities: items });
+
+    const { getByText } = await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+        <EntityProvider entity={groupEntity}>
+          <OwnershipCard entityFilterKind={['API', 'System']} />
+        </EntityProvider>
+      </TestApiProvider>,
+      {
+        mountedRoutes: {
+          '/create': catalogIndexRouteRef,
+        },
+      },
+    );
+
+    expect(getByText('SYSTEM')).toBeInTheDocument();
     expect(
-      queryByText(getByText('Websites').parentElement!, '0'),
+      queryByText(getByText('SYSTEM').closest('a')!, '1'),
     ).toBeInTheDocument();
-    expect(getByText('Tools')).toBeInTheDocument();
     expect(
-      queryByText(getByText('Tools').parentElement!, '0'),
+      queryByText(getByText('SYSTEM').closest('a')!, 'System'),
+    ).not.toBeInTheDocument();
+    expect(getByText('OPENAPI')).toBeInTheDocument();
+    expect(
+      queryByText(getByText('OPENAPI').closest('a')!, '1'),
     ).toBeInTheDocument();
+    expect(
+      queryByText(getByText('OPENAPI').closest('a')!, 'API'),
+    ).toBeInTheDocument();
+    expect(() => getByText('LIBRARY')).toThrow();
+  });
+
+  it('links to the catalog with the group filter', async () => {
+    const catalogApi = catalogApiMock({ entities: items });
+
+    const { getByText } = await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+        <EntityProvider entity={groupEntity}>
+          <OwnershipCard />
+        </EntityProvider>
+      </TestApiProvider>,
+      {
+        mountedRoutes: {
+          '/create': catalogIndexRouteRef,
+        },
+      },
+    );
+
+    const href = getByText('OPENAPI').closest('a')?.href ?? '';
+    // This env does not support URLSearchParams
+    const queryParams = decodeURIComponent(href);
+
+    expect(queryParams).toContain('filters[owners]=group:default/my-team');
+  });
+
+  it('links to the catalog with the user and groups filters from an user profile', async () => {
+    const catalogApi = catalogApiMock({ entities: items });
+
+    const { getByText } = await renderInTestApp(
+      <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+        <EntityProvider entity={userEntity}>
+          <OwnershipCard relationAggregation="aggregated" />
+        </EntityProvider>
+      </TestApiProvider>,
+      {
+        mountedRoutes: {
+          '/create': catalogIndexRouteRef,
+        },
+      },
+    );
+
+    const href = getByText('OPENAPI').closest('a')?.href ?? '';
+    // This env does not support URLSearchParams
+    const queryParams = decodeURIComponent(href);
+    expect(queryParams).toMatch(
+      /filters\[owners\]=group:custom\/some\-team.*filters\[owners\]=user:default\/the-user/,
+    );
+  });
+
+  describe('OwnershipCard relations', () => {
+    it('shows relations toggle', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={groupEntity}>
+            <OwnershipCard />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      expect(
+        screen.getByRole('switch', { name: 'Include indirect ownership' }),
+      ).toBeInTheDocument();
+    });
+
+    it('hides relations toggle', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={groupEntity}>
+            <OwnershipCard hideRelationsToggle />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    });
+
+    it('overrides relation type', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={groupEntity}>
+            <OwnershipCard relationsType="aggregated" />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      await expect(screen.findByRole('switch')).resolves.toBeChecked();
+    });
+
+    it('defaults to aggregated for User entity kind', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={userEntity}>
+            <OwnershipCard />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      await expect(screen.findByRole('switch')).resolves.toBeChecked();
+    });
+
+    it('defaults to direct for all entity kinds except User', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={groupEntity}>
+            <OwnershipCard />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      expect(screen.getByRole('switch')).not.toBeChecked();
+    });
+
+    it('defaults to provided relationsType', async () => {
+      const catalogApi = catalogApiMock({ entities: items });
+
+      await renderInTestApp(
+        <TestApiProvider apis={[[catalogApiRef, catalogApi]]}>
+          <EntityProvider entity={userEntity}>
+            <OwnershipCard relationsType="direct" />
+          </EntityProvider>
+        </TestApiProvider>,
+        {
+          mountedRoutes: {
+            '/create': catalogIndexRouteRef,
+          },
+        },
+      );
+
+      expect(screen.getByRole('switch')).not.toBeChecked();
+    });
   });
 });

@@ -16,7 +16,12 @@
 
 import { useMemo } from 'react';
 import { matchRoutes, useLocation } from 'react-router-dom';
-import { useVersionedContext } from '../lib/versionedValues';
+import { useVersionedContext } from '@backstage/version-bridge';
+import {
+  RouteResolutionApi,
+  routeResolutionApiRef,
+  useApi,
+} from '@backstage/frontend-plugin-api';
 import {
   AnyParams,
   ExternalRouteRef,
@@ -25,6 +30,9 @@ import {
   SubRouteRef,
 } from './types';
 
+/**
+ * @internal
+ */
 export interface RouteResolver {
   resolve<Params extends AnyParams>(
     anyRouteRef:
@@ -35,38 +43,108 @@ export interface RouteResolver {
   ): RouteFunc<Params> | undefined;
 }
 
+function useRouteResolutionApi(): RouteResolutionApi | undefined {
+  try {
+    return useApi(routeResolutionApiRef);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * React hook for constructing URLs to routes.
+ *
+ * @remarks
+ *
+ * See {@link https://backstage.io/docs/plugins/composability#routing-system}
+ *
+ * @param routeRef - The ref to route that should be converted to URL.
+ * @returns A function that will in turn return the concrete URL of the `routeRef`.
+ * @public
+ */
 export function useRouteRef<Optional extends boolean, Params extends AnyParams>(
   routeRef: ExternalRouteRef<Params, Optional>,
 ): Optional extends true ? RouteFunc<Params> | undefined : RouteFunc<Params>;
+
+/**
+ * React hook for constructing URLs to routes.
+ *
+ * @remarks
+ *
+ * See {@link https://backstage.io/docs/plugins/composability#routing-system}
+ *
+ * @param routeRef - The ref to route that should be converted to URL.
+ * @returns A function that will in turn return the concrete URL of the `routeRef`.
+ * @public
+ */
 export function useRouteRef<Params extends AnyParams>(
   routeRef: RouteRef<Params> | SubRouteRef<Params>,
 ): RouteFunc<Params>;
+
+/**
+ * React hook for constructing URLs to routes.
+ *
+ * @remarks
+ *
+ * See {@link https://backstage.io/docs/plugins/composability#routing-system}
+ *
+ * @param routeRef - The ref to route that should be converted to URL.
+ * @returns A function that will in turn return the concrete URL of the `routeRef`.
+ * @public
+ */
 export function useRouteRef<Params extends AnyParams>(
   routeRef:
     | RouteRef<Params>
     | SubRouteRef<Params>
     | ExternalRouteRef<Params, any>,
 ): RouteFunc<Params> | undefined {
-  const sourceLocation = useLocation();
-  const versionedContext =
-    useVersionedContext<{ 1: RouteResolver }>('routing-context');
-  const resolver = versionedContext.atVersion(1);
-  const routeFunc = useMemo(
-    () => resolver && resolver.resolve(routeRef, sourceLocation),
-    [resolver, routeRef, sourceLocation],
+  const { pathname } = useLocation();
+  const routeResolutionApi = useRouteResolutionApi();
+  const versionedContext = useVersionedContext<{ 1: RouteResolver }>(
+    'routing-context',
   );
 
-  if (!versionedContext) {
-    throw new Error('useRouteRef used outside of routing context');
+  const resolver = versionedContext?.atVersion(1);
+
+  const newRouteFunc = useMemo(() => {
+    if (!routeResolutionApi) {
+      return null;
+    }
+
+    try {
+      return routeResolutionApi?.resolve(routeRef, {
+        sourcePath: pathname,
+      });
+    } catch {
+      return null;
+    }
+  }, [routeResolutionApi, routeRef, pathname]);
+
+  const legacyRouteFunc = useMemo(
+    () => resolver && resolver.resolve(routeRef, { pathname }),
+    [resolver, routeRef, pathname],
+  );
+
+  if (newRouteFunc !== null) {
+    const isOptional = 'optional' in routeRef && routeRef.optional;
+    if (!newRouteFunc && !isOptional) {
+      throw new Error(`No path for ${routeRef}`);
+    }
+    return newRouteFunc;
   }
+
+  if (!versionedContext) {
+    throw new Error('Routing context is not available');
+  }
+
   if (!resolver) {
     throw new Error('RoutingContext v1 not available');
   }
 
   const isOptional = 'optional' in routeRef && routeRef.optional;
-  if (!routeFunc && !isOptional) {
+  if (!legacyRouteFunc && !isOptional) {
     throw new Error(`No path for ${routeRef}`);
   }
 
-  return routeFunc;
+  return legacyRouteFunc;
 }

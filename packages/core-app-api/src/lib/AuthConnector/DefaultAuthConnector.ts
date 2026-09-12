@@ -13,15 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import {
-  AuthRequester,
-  OAuthRequestApi,
-  AuthProvider,
+  AuthProviderInfo,
+  ConfigApi,
   DiscoveryApi,
+  OAuthRequestApi,
+  OAuthRequester,
 } from '@backstage/core-plugin-api';
-import { showLoginPopup } from '../loginPopup';
-import { AuthConnector, CreateSessionOptions } from './types';
+import { openLoginPopup } from '../loginPopup';
+import {
+  AuthConnector,
+  AuthConnectorCreateSessionOptions,
+  PopupOptions,
+  AuthConnectorRefreshSessionOptions,
+} from './types';
+
+let warned = false;
 
 type Options<AuthSession> = {
   /**
@@ -36,7 +43,7 @@ type Options<AuthSession> = {
    * Information about the auth provider to be shown to the user.
    * The ID Must match the backend auth plugin configuration, for example 'google'.
    */
-  provider: AuthProvider & { id: string };
+  provider: AuthProviderInfo;
   /**
    * API used to instantiate an auth requester.
    */
@@ -49,6 +56,14 @@ type Options<AuthSession> = {
    * Function used to transform an auth response into the session type.
    */
   sessionTransform?(response: any): AuthSession | Promise<AuthSession>;
+  /**
+   * ConfigApi instance used to configure authentication flow of pop-up or redirect.
+   */
+  configApi?: ConfigApi;
+  /**
+   * Options used to configure auth popup
+   */
+  popupOptions?: PopupOptions;
 };
 
 function defaultJoinScopes(scopes: Set<string>) {
@@ -65,24 +80,44 @@ export class DefaultAuthConnector<AuthSession>
 {
   private readonly discoveryApi: DiscoveryApi;
   private readonly environment: string;
-  private readonly provider: AuthProvider & { id: string };
+  private readonly provider: AuthProviderInfo;
   private readonly joinScopesFunc: (scopes: Set<string>) => string;
-  private readonly authRequester: AuthRequester<AuthSession>;
+  private readonly authRequester: OAuthRequester<AuthSession>;
   private readonly sessionTransform: (response: any) => Promise<AuthSession>;
-
+  private readonly enableExperimentalRedirectFlow: boolean;
+  private readonly popupOptions: PopupOptions | undefined;
   constructor(options: Options<AuthSession>) {
     const {
+      configApi,
       discoveryApi,
       environment,
       provider,
       joinScopes = defaultJoinScopes,
       oauthRequestApi,
       sessionTransform = id => id,
+      popupOptions,
     } = options;
+
+    if (!warned && !configApi) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'DEPRECATION WARNING: Authentication providers require a configApi instance to configure the authentication flow. Please provide one to the authentication provider constructor.',
+      );
+      warned = true;
+    }
+
+    this.enableExperimentalRedirectFlow = configApi
+      ? configApi.getOptionalBoolean('enableExperimentalRedirectFlow') ?? false
+      : false;
 
     this.authRequester = oauthRequestApi.createAuthRequester({
       provider,
-      onAuthRequest: scopes => this.showPopup(scopes),
+      onAuthRequest: async scopes => {
+        if (!this.enableExperimentalRedirectFlow) {
+          return this.showPopup(scopes);
+        }
+        return this.executeRedirect(scopes);
+      },
     });
 
     this.discoveryApi = discoveryApi;
@@ -90,18 +125,29 @@ export class DefaultAuthConnector<AuthSession>
     this.provider = provider;
     this.joinScopesFunc = joinScopes;
     this.sessionTransform = sessionTransform;
+    this.popupOptions = popupOptions;
   }
 
-  async createSession(options: CreateSessionOptions): Promise<AuthSession> {
+  async createSession(
+    options: AuthConnectorCreateSessionOptions,
+  ): Promise<AuthSession> {
     if (options.instantPopup) {
+      if (this.enableExperimentalRedirectFlow) {
+        return this.executeRedirect(options.scopes);
+      }
       return this.showPopup(options.scopes);
     }
     return this.authRequester(options.scopes);
   }
 
-  async refreshSession(): Promise<any> {
+  async refreshSession(
+    options?: AuthConnectorRefreshSessionOptions,
+  ): Promise<any> {
     const res = await fetch(
-      await this.buildUrl('/refresh', { optional: true }),
+      await this.buildUrl('/refresh', {
+        optional: true,
+        ...(options && { scope: this.joinScopesFunc(options.scopes) }),
+      }),
       {
         headers: {
           'x-requested-with': 'XMLHttpRequest',
@@ -148,21 +194,67 @@ export class DefaultAuthConnector<AuthSession>
       error.status = res.status;
       throw error;
     }
+
+    // If the auth provider returned a logout URL (e.g. for Auth0 federated
+    // logout), redirect the browser to clear the provider's session cookies.
+    try {
+      const contentType = res.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        const body = await res.json();
+        if (body.logoutUrl) {
+          const url = new URL(body.logoutUrl);
+          if (url.protocol === 'https:' || url.hostname === 'localhost') {
+            window.location.href = body.logoutUrl;
+            return new Promise(() => {});
+          }
+        }
+      }
+    } catch {
+      // Provider logout redirect is best-effort - the backend session
+      // (refresh token cookie and persisted scopes) is already cleared,
+      // so we degrade gracefully.
+    }
+
+    return undefined;
   }
 
   private async showPopup(scopes: Set<string>): Promise<AuthSession> {
     const scope = this.joinScopesFunc(scopes);
-    const popupUrl = await this.buildUrl('/start', { scope });
+    const popupUrl = await this.buildUrl('/start', {
+      scope,
+      origin: window.location.origin,
+      flow: 'popup',
+    });
 
-    const payload = await showLoginPopup({
+    const width = this.popupOptions?.size?.fullscreen
+      ? window.screen.width
+      : this.popupOptions?.size?.width || 450;
+
+    const height = this.popupOptions?.size?.fullscreen
+      ? window.screen.height
+      : this.popupOptions?.size?.height || 730;
+
+    const payload = await openLoginPopup({
       url: popupUrl,
       name: `${this.provider.title} Login`,
-      origin: new URL(popupUrl).origin,
-      width: 450,
-      height: 730,
+      width,
+      height,
     });
 
     return await this.sessionTransform(payload);
+  }
+
+  private async executeRedirect(scopes: Set<string>): Promise<AuthSession> {
+    const scope = this.joinScopesFunc(scopes);
+    // redirect to auth api
+    window.location.href = await this.buildUrl('/start', {
+      scope,
+      origin: window.location.origin,
+      redirectUrl: window.location.href,
+      flow: 'redirect',
+    });
+    // return a promise that never resolves
+    return new Promise(() => {});
   }
 
   private async buildUrl(

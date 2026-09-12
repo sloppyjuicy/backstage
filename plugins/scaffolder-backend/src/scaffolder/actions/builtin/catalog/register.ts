@@ -16,58 +16,62 @@
 
 import { InputError } from '@backstage/errors';
 import { ScmIntegrations } from '@backstage/integration';
-import { CatalogApi } from '@backstage/catalog-client';
-import { getEntityName } from '@backstage/catalog-model';
-import { createTemplateAction } from '../../createTemplateAction';
+import { stringifyEntityRef, Entity } from '@backstage/catalog-model';
+import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
+import { examples } from './register.examples';
+import { CatalogService } from '@backstage/plugin-catalog-node';
 
+const id = 'catalog:register';
+
+/**
+ * Registers entities from a catalog descriptor file in the workspace into the software catalog.
+ * @public
+ */
 export function createCatalogRegisterAction(options: {
-  catalogClient: CatalogApi;
+  catalog: CatalogService;
   integrations: ScmIntegrations;
 }) {
-  const { catalogClient, integrations } = options;
+  const { catalog, integrations } = options;
 
-  return createTemplateAction<
-    | { catalogInfoUrl: string }
-    | { repoContentsUrl: string; catalogInfoPath?: string }
-  >({
-    id: 'catalog:register',
+  return createTemplateAction({
+    id,
     description:
       'Registers entities from a catalog descriptor file in the workspace into the software catalog.',
+    examples,
     schema: {
-      input: {
-        oneOf: [
-          {
-            type: 'object',
-            required: ['catalogInfoUrl'],
-            properties: {
-              catalogInfoUrl: {
-                title: 'Catalog Info URL',
+      input: z =>
+        z.union([
+          z.object({
+            catalogInfoUrl: z.string({
+              description:
+                'An absolute URL pointing to the catalog info file location',
+            }),
+            optional: z
+              .boolean({
                 description:
-                  'An absolute URL pointing to the catalog info file location',
-                type: 'string',
-              },
-            },
-          },
-          {
-            type: 'object',
-            required: ['repoContentsUrl'],
-            properties: {
-              repoContentsUrl: {
-                title: 'Repository Contents URL',
-                description:
-                  'An absolute URL pointing to the root of a repository directory tree',
-                type: 'string',
-              },
-              catalogInfoPath: {
-                title: 'Fetch URL',
+                  'Permit the registered location to optionally exist. Default: false',
+              })
+              .optional(),
+          }),
+          z.object({
+            repoContentsUrl: z.string({
+              description:
+                'An absolute URL pointing to the root of a repository directory tree',
+            }),
+            catalogInfoPath: z
+              .string({
                 description:
                   'A relative path from the repo root pointing to the catalog info file, defaults to /catalog-info.yaml',
-                type: 'string',
-              },
-            },
-          },
-        ],
-      },
+              })
+              .optional(),
+            optional: z
+              .boolean({
+                description:
+                  'Permit the registered location to optionally exist. Default: false',
+              })
+              .optional(),
+          }),
+        ]),
     },
     async handler(ctx) {
       const { input } = ctx;
@@ -93,18 +97,60 @@ export function createCatalogRegisterAction(options: {
 
       ctx.logger.info(`Registering ${catalogInfoUrl} in the catalog`);
 
-      const result = await catalogClient.addLocation(
-        {
-          type: 'url',
-          target: catalogInfoUrl,
-        },
-        ctx.token ? { token: ctx.token } : {},
-      );
-      if (result.entities.length >= 1) {
-        const { kind, name, namespace } = getEntityName(result.entities[0]);
-        ctx.output('entityRef', `${kind}:${namespace}/${name}`);
-        ctx.output('catalogInfoUrl', catalogInfoUrl);
+      try {
+        // 1st try to register the location, this will throw an error if the location already exists (see catch)
+        await catalog.addLocation(
+          {
+            type: 'url',
+            target: catalogInfoUrl,
+          },
+          { credentials: await ctx.getInitiatorCredentials() },
+        );
+      } catch (e) {
+        if (!input.optional) {
+          // if optional is false or unset, it is not allowed to register the same location twice, we rethrow the error
+          throw e;
+        }
       }
+
+      try {
+        // 2nd retry the registration as a dry run, this will not throw an error if the location already exists
+        const result = await catalog.addLocation(
+          {
+            dryRun: true,
+            type: 'url',
+            target: catalogInfoUrl,
+          },
+          { credentials: await ctx.getInitiatorCredentials() },
+        );
+
+        if (result.entities.length) {
+          const { entities } = result;
+          let entity: Entity | undefined;
+          // prioritise 'Component' type as it is the most central kind of entity
+          entity = entities.find(
+            e =>
+              !e.metadata.name.startsWith('generated-') &&
+              e.kind === 'Component',
+          );
+          if (!entity) {
+            entity = entities.find(
+              e => !e.metadata.name.startsWith('generated-'),
+            );
+          }
+          if (!entity) {
+            entity = entities[0];
+          }
+
+          ctx.output('entityRef', stringifyEntityRef(entity));
+        }
+      } catch (e) {
+        if (!input.optional) {
+          throw e;
+        }
+      }
+
+      ctx.output('catalogInfoUrl', catalogInfoUrl);
     },
   });
 }

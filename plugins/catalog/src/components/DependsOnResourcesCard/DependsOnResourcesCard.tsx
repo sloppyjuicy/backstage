@@ -14,30 +14,94 @@
  * limitations under the License.
  */
 
-import { RELATION_DEPENDS_ON } from '@backstage/catalog-model';
-import React from 'react';
+import { RELATION_DEPENDS_ON, ResourceEntity } from '@backstage/catalog-model';
+import {
+  InfoCardVariants,
+  TableColumn,
+  TableOptions,
+} from '@backstage/core-components';
+import {
+  EntityRelationCard,
+  EntityColumnConfig,
+  entityColumnPresets,
+} from '@backstage/plugin-catalog-react/alpha';
 import {
   asResourceEntities,
-  componentEntityHelpLink,
-  RelatedEntitiesCard,
+  componentEntityHelpLink as legacyHelpLink,
   resourceEntityColumns,
+  RelatedEntitiesCard,
 } from '../RelatedEntitiesCard';
+import { catalogTranslationRef } from '../../alpha/translation';
+import { useTranslationRef } from '@backstage/core-plugin-api/alpha';
 
-type Props = {
-  variant?: 'gridItem';
-};
+/** @public */
+export interface DependsOnResourcesCardProps {
+  title?: string;
+  columnConfig?: EntityColumnConfig[];
+}
 
-export const DependsOnResourcesCard = ({ variant = 'gridItem' }: Props) => {
+/**
+ * Props for the legacy MUI-based rendering.
+ * @deprecated Use {@link DependsOnResourcesCardProps} instead.
+ * @public
+ */
+export interface DependsOnResourcesCardLegacyProps {
+  title?: string;
+  /** @deprecated Use `columnConfig` instead. */
+  variant?: InfoCardVariants;
+  /** @deprecated Use `columnConfig` instead. */
+  columns?: TableColumn<ResourceEntity>[];
+  /** @deprecated Use `columnConfig` instead. */
+  tableOptions?: TableOptions;
+}
+
+function isLegacyProps(
+  props: DependsOnResourcesCardProps | DependsOnResourcesCardLegacyProps,
+): props is DependsOnResourcesCardLegacyProps {
+  return 'variant' in props || 'columns' in props || 'tableOptions' in props;
+}
+
+export function DependsOnResourcesCard(
+  props: DependsOnResourcesCardProps | DependsOnResourcesCardLegacyProps,
+) {
+  const { t } = useTranslationRef(catalogTranslationRef);
+
+  if (isLegacyProps(props)) {
+    const {
+      variant = 'gridItem',
+      title = t('dependsOnResourcesCard.title'),
+      columns = resourceEntityColumns,
+      tableOptions = {},
+    } = props;
+    return (
+      <RelatedEntitiesCard
+        variant={variant}
+        title={title}
+        entityKind="Resource"
+        relationType={RELATION_DEPENDS_ON}
+        columns={columns}
+        emptyMessage={t('dependsOnResourcesCard.emptyMessage')}
+        emptyHelpLink={legacyHelpLink}
+        asRenderableEntities={asResourceEntities}
+        tableOptions={tableOptions}
+      />
+    );
+  }
+
+  const {
+    title = t('dependsOnResourcesCard.title'),
+    columnConfig = entityColumnPresets.resource.columns,
+  } = props;
   return (
-    <RelatedEntitiesCard
-      variant={variant}
-      title="Depends on resources"
+    <EntityRelationCard
+      title={title}
       entityKind="Resource"
       relationType={RELATION_DEPENDS_ON}
-      columns={resourceEntityColumns}
-      emptyMessage="No resource is a dependency of this component"
-      emptyHelpLink={componentEntityHelpLink}
-      asRenderableEntities={asResourceEntities}
+      columnConfig={columnConfig}
+      emptyState={{
+        message: t('dependsOnResourcesCard.emptyMessage'),
+        helpLink: entityColumnPresets.component.helpLink,
+      }}
     />
   );
-};
+}

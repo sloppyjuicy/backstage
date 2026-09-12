@@ -14,49 +14,23 @@
  * limitations under the License.
  */
 
-import type { ApiRef } from './types';
+import {
+  createApiRef as createFrontendApiRef,
+  type ApiRef,
+  type ApiRefConfig,
+} from '@backstage/frontend-plugin-api';
 
-export type ApiRefConfig = {
-  id: string;
-  /**
-   * @deprecated Will be removed in the future
-   */
-  description?: string;
-};
+const createFrontendApiRefCompat = createFrontendApiRef as <T>(
+  config: ApiRefConfig,
+) => ApiRef<T>;
 
-class ApiRefImpl<T> implements ApiRef<T> {
-  constructor(private readonly config: ApiRefConfig) {
-    const valid = config.id
-      .split('.')
-      .flatMap(part => part.split('-'))
-      .every(part => part.match(/^[a-z][a-z0-9]*$/));
-    if (!valid) {
-      throw new Error(
-        `API id must only contain period separated lowercase alphanum tokens with dashes, got '${config.id}'`,
-      );
-    }
-  }
-
-  get id(): string {
-    return this.config.id;
-  }
-
-  get description() {
-    // eslint-disable-next-line no-console
-    console.warn('Deprecated use of ApiRef.description');
-    return this.config.description;
-  }
-
-  // Utility for getting type of an api, using `typeof apiRef.T`
-  get T(): T {
-    throw new Error(`tried to read ApiRef.T of ${this}`);
-  }
-
-  toString() {
-    return `apiRef{${this.config.id}}`;
-  }
-}
-
+/**
+ * Creates a reference to an API.
+ *
+ * @public
+ */
 export function createApiRef<T>(config: ApiRefConfig): ApiRef<T> {
-  return new ApiRefImpl<T>(config);
+  return createFrontendApiRefCompat<T>(config);
 }
+
+export type { ApiRefConfig };

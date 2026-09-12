@@ -14,21 +14,10 @@
  * limitations under the License.
  */
 
-import Knex from 'knex';
-import { DatabaseKeyStore } from './DatabaseKeyStore';
 import { DateTime } from 'luxon';
-
-function createDB() {
-  const knex = Knex({
-    client: 'sqlite3',
-    connection: ':memory:',
-    useNullAsDefault: true,
-  });
-  knex.client.pool.on('createSuccess', (_eventId: any, resource: any) => {
-    resource.run('PRAGMA foreign_keys = ON', () => {});
-  });
-  return knex;
-}
+import { AuthDatabase } from '../database/AuthDatabase';
+import { DatabaseKeyStore } from './DatabaseKeyStore';
+import { TestDatabases } from '@backstage/backend-test-utils';
 
 const keyBase = {
   use: 'sig',
@@ -36,91 +25,102 @@ const keyBase = {
   alg: 'Base64',
 } as const;
 
-describe('DatabaseKeyStore', () => {
-  it('should store a key', async () => {
-    const database = createDB();
-    const store = await DatabaseKeyStore.create({ database });
+jest.setTimeout(60_000);
 
-    const key = {
-      kid: '123',
-      ...keyBase,
-    };
+const databases = TestDatabases.create();
 
-    await expect(store.listKeys()).resolves.toEqual({ items: [] });
-    await store.addKey(key);
+describe.each(databases.eachSupportedId())(
+  'DatabaseKeyStore, %p',
+  databaseId => {
+    it('should store a key', async () => {
+      const knex = await databases.init(databaseId);
+      await AuthDatabase.runMigrations(knex);
 
-    const { items } = await store.listKeys();
-    expect(items).toEqual([{ createdAt: expect.anything(), key }]);
-    expect(
-      Math.abs(
-        DateTime.fromJSDate(items[0].createdAt).diffNow('seconds').seconds,
-      ),
-    ).toBeLessThan(10);
-  });
+      const store = new DatabaseKeyStore(knex);
 
-  it('should remove stored keys', async () => {
-    const database = createDB();
-    const store = await DatabaseKeyStore.create({ database });
+      const key = {
+        kid: '123',
+        ...keyBase,
+      };
 
-    const key1 = { kid: '1', ...keyBase };
-    const key2 = { kid: '2', ...keyBase };
-    const key3 = { kid: '3', ...keyBase };
+      await expect(store.listKeys()).resolves.toEqual({ items: [] });
+      await store.addKey(key);
 
-    await store.addKey(key1);
-    await store.addKey(key2);
-    await store.addKey(key3);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [
-        { key: key1, createdAt: expect.anything() },
-        { key: key2, createdAt: expect.anything() },
-        { key: key3, createdAt: expect.anything() },
-      ],
+      const { items } = await store.listKeys();
+      expect(items).toEqual([{ createdAt: expect.anything(), key }]);
+      expect(
+        Math.abs(
+          DateTime.fromJSDate(items[0].createdAt).diffNow('seconds').seconds,
+        ),
+      ).toBeLessThan(10);
     });
 
-    store.removeKeys(['1']);
+    it('should remove stored keys', async () => {
+      const knex = await databases.init(databaseId);
+      await AuthDatabase.runMigrations(knex);
 
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [
-        { key: key2, createdAt: expect.anything() },
-        { key: key3, createdAt: expect.anything() },
-      ],
+      const store = new DatabaseKeyStore(knex);
+
+      const key1 = { kid: '1', ...keyBase };
+      const key2 = { kid: '2', ...keyBase };
+      const key3 = { kid: '3', ...keyBase };
+
+      await store.addKey(key1);
+      await store.addKey(key2);
+      await store.addKey(key3);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [
+          { key: key1, createdAt: expect.anything() },
+          { key: key2, createdAt: expect.anything() },
+          { key: key3, createdAt: expect.anything() },
+        ],
+      });
+
+      await store.removeKeys(['1']);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [
+          { key: key2, createdAt: expect.anything() },
+          { key: key3, createdAt: expect.anything() },
+        ],
+      });
+
+      await store.removeKeys(['1', '2']);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [{ key: key3, createdAt: expect.anything() }],
+      });
+
+      await store.removeKeys([]);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [{ key: key3, createdAt: expect.anything() }],
+      });
+
+      await store.removeKeys(['3', '4']);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [],
+      });
+
+      await store.addKey(key1);
+      await store.addKey(key2);
+      await store.addKey(key3);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [
+          { key: key1, createdAt: expect.anything() },
+          { key: key2, createdAt: expect.anything() },
+          { key: key3, createdAt: expect.anything() },
+        ],
+      });
+
+      await store.removeKeys(['1', '2', '3']);
+
+      await expect(store.listKeys()).resolves.toEqual({
+        items: [],
+      });
     });
-
-    store.removeKeys(['1', '2']);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [{ key: key3, createdAt: expect.anything() }],
-    });
-
-    store.removeKeys([]);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [{ key: key3, createdAt: expect.anything() }],
-    });
-
-    store.removeKeys(['3', '4']);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [],
-    });
-
-    await store.addKey(key1);
-    await store.addKey(key2);
-    await store.addKey(key3);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [
-        { key: key1, createdAt: expect.anything() },
-        { key: key2, createdAt: expect.anything() },
-        { key: key3, createdAt: expect.anything() },
-      ],
-    });
-
-    store.removeKeys(['1', '2', '3']);
-
-    await expect(store.listKeys()).resolves.toEqual({
-      items: [],
-    });
-  });
-});
+  },
+);

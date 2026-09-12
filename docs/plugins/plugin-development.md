@@ -4,6 +4,12 @@ title: Plugin Development
 description: Documentation on Plugin Development
 ---
 
+:::caution[Legacy Documentation]
+
+This page covers plugin development patterns for the **old frontend system**, including `createPlugin`, `createRoutableExtension`, and `RouteRef` from `@backstage/core-plugin-api`. For the new frontend system equivalents, see [Building Frontend Plugins](../frontend-system/building-plugins/01-index.md) and [Routes](../frontend-system/architecture/36-routes.md).
+
+:::
+
 Backstage plugins provide features to a Backstage App.
 
 Each plugin is treated as a self-contained web app and can include almost any
@@ -16,7 +22,7 @@ browser APIs or by depending on external modules to do the work.
 - Consider writing plugins in `TypeScript`.
 - Plan the directory structure of your plugin so that it becomes easy to manage.
 - Prefer using the [Backstage components](https://backstage.io/storybook),
-  otherwise go with [Material-UI](https://material-ui.com/).
+  otherwise go with [Material UI](https://material-ui.com/).
 - Check out the shared Backstage APIs before building a new one.
 
 ## Plugin concepts / API
@@ -40,7 +46,7 @@ import { createRouteRef } from '@backstage/core-plugin-api';
 
 // Note: This route ref is for internal use only, don't export it from the plugin
 export const rootRouteRef = createRouteRef({
-  title: 'Example Page',
+  id: 'Example Page',
 });
 ```
 
@@ -65,6 +71,7 @@ export const examplePlugin = createPlugin({
 // Each extension should also be exported from your plugin package.
 export const ExamplePage = examplePlugin.provide(
   createRoutableExtension({
+    name: 'ExamplePage',
     // The component needs to be lazy-loaded. It's what will actually be rendered in the end.
     component: () =>
       import('./components/ExampleComponent').then(m => m.ExampleComponent),
@@ -78,5 +85,5 @@ This extension can then be imported and used in the app as follow, typically
 placed within the top-level `<FlatRoutes>`:
 
 ```tsx
-<Route route="/any-path" element={<ExamplePage />} />
+<Route path="/any-path" element={<ExamplePage />} />
 ```

@@ -15,38 +15,39 @@
  */
 
 import { ApiEntity } from '@backstage/catalog-model';
-import { useEntity } from '@backstage/plugin-catalog-react';
-import { Alert } from '@material-ui/lab';
-import React from 'react';
-import { apiDocsConfigRef } from '../../config';
-import { PlainApiDefinitionWidget } from '../PlainApiDefinitionWidget';
-
+import {
+  useEntity,
+  useEntityPresentation,
+} from '@backstage/plugin-catalog-react';
 import { CardTab, TabbedCard } from '@backstage/core-components';
 import { useApi } from '@backstage/core-plugin-api';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import Alert from '@material-ui/lab/Alert';
+import { apiDocsConfigRef } from '../../config';
+import { apiDocsTranslationRef } from '../../translation';
+import { PlainApiDefinitionWidget } from '../PlainApiDefinitionWidget';
 
-type Props = {
-  /** @deprecated The entity is now grabbed from context instead */
-  apiEntity?: ApiEntity;
-};
-
-export const ApiDefinitionCard = (_: Props) => {
+/** @public */
+export const ApiDefinitionCard = () => {
   const { entity } = useEntity<ApiEntity>();
   const config = useApi(apiDocsConfigRef);
   const { getApiDefinitionWidget } = config;
+  const { t } = useTranslationRef(apiDocsTranslationRef);
+  const { primaryTitle } = useEntityPresentation(entity);
 
   if (!entity) {
-    return <Alert severity="error">Could not fetch the API</Alert>;
+    return <Alert severity="error">{t('apiDefinitionCard.error.title')}</Alert>;
   }
 
   const definitionWidget = getApiDefinitionWidget(entity);
 
   if (definitionWidget) {
     return (
-      <TabbedCard title={entity.metadata.name}>
+      <TabbedCard title={primaryTitle}>
         <CardTab label={definitionWidget.title} key="widget">
           {definitionWidget.component(entity.spec.definition)}
         </CardTab>
-        <CardTab label="Raw" key="raw">
+        <CardTab label={t('apiDefinitionCard.rawButtonTitle')} key="raw">
           <PlainApiDefinitionWidget
             definition={entity.spec.definition}
             language={definitionWidget.rawLanguage || entity.spec.type}
@@ -58,7 +59,7 @@ export const ApiDefinitionCard = (_: Props) => {
 
   return (
     <TabbedCard
-      title={entity.metadata.name}
+      title={primaryTitle}
       children={[
         // Has to be an array, otherwise typescript doesn't like that this has only a single child
         <CardTab label={entity.spec.type} key="raw">

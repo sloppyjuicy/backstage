@@ -14,60 +14,210 @@
  * limitations under the License.
  */
 
+import { ANNOTATION_KUBERNETES_AUTH_PROVIDER } from '@backstage/plugin-kubernetes-common';
 import { Config } from '@backstage/config';
+import { ForwardedError } from '@backstage/errors';
 import * as container from '@google-cloud/container';
-import { GKEClusterDetails, KubernetesClustersSupplier } from '../types/types';
+import { Duration } from 'luxon';
+import { runPeriodically } from '../service/runPeriodically';
+import {
+  ClusterDetails,
+  KubernetesClustersSupplier,
+} from '@backstage/plugin-kubernetes-node';
+import { LoggerService } from '@backstage/backend-plugin-api';
+import packageinfo from '../../package.json';
+
+interface MatchResourceLabelEntry {
+  key: string;
+  value: string;
+}
 
 type GkeClusterLocatorOptions = {
   projectId: string;
+  authProvider: string;
   region?: string;
   skipTLSVerify?: boolean;
+  skipMetricsLookup?: boolean;
+  exposeDashboard?: boolean;
+  matchingResourceLabels?: MatchResourceLabelEntry[];
+  endpointType?: 'public' | 'dns';
 };
 
+const VALID_ENDPOINT_TYPES = ['public', 'dns'] as const;
+
 export class GkeClusterLocator implements KubernetesClustersSupplier {
+  private readonly options: GkeClusterLocatorOptions;
+  private readonly client: container.v1.ClusterManagerClient;
+  private readonly logger: LoggerService;
+  private clusterDetails: ClusterDetails[] | undefined;
+  private hasClusterDetails: boolean;
+
   constructor(
-    private readonly options: GkeClusterLocatorOptions,
-    private readonly client: container.v1.ClusterManagerClient,
-  ) {}
+    options: GkeClusterLocatorOptions,
+    client: container.v1.ClusterManagerClient,
+    logger: LoggerService,
+    clusterDetails: ClusterDetails[] | undefined = undefined,
+    hasClusterDetails: boolean = false,
+  ) {
+    this.options = options;
+    this.client = client;
+    this.logger = logger;
+    this.clusterDetails = clusterDetails;
+    this.hasClusterDetails = hasClusterDetails;
+  }
 
   static fromConfigWithClient(
     config: Config,
     client: container.v1.ClusterManagerClient,
+    logger: LoggerService,
+    refreshInterval?: Duration,
   ): GkeClusterLocator {
+    const matchingResourceLabels: MatchResourceLabelEntry[] =
+      config.getOptionalConfigArray('matchingResourceLabels')?.map(mrl => {
+        return { key: mrl.getString('key'), value: mrl.getString('value') };
+      }) ?? [];
+
+    const storeAuthProviderString =
+      config.getOptionalString('authProvider') === 'googleServiceAccount'
+        ? 'googleServiceAccount'
+        : 'google';
+
     const options = {
       projectId: config.getString('projectId'),
+      authProvider: storeAuthProviderString,
       region: config.getOptionalString('region') ?? '-',
       skipTLSVerify: config.getOptionalBoolean('skipTLSVerify') ?? false,
+      skipMetricsLookup:
+        config.getOptionalBoolean('skipMetricsLookup') ?? false,
+      exposeDashboard: config.getOptionalBoolean('exposeDashboard') ?? false,
+      matchingResourceLabels,
+      endpointType: parseEndpointType(config.getOptionalString('endpointType')),
     };
-    return new GkeClusterLocator(options, client);
+    const gkeClusterLocator = new GkeClusterLocator(options, client, logger);
+    if (refreshInterval) {
+      runPeriodically(
+        () => gkeClusterLocator.refreshClusters(),
+        refreshInterval.toMillis(),
+      );
+    }
+    return gkeClusterLocator;
   }
 
-  static fromConfig(config: Config): GkeClusterLocator {
+  // Added an `x-goog-api-client` header to API requests made by the GKE cluster locator to clearly identify API requests from this plugin.
+  static fromConfig(
+    config: Config,
+    logger: LoggerService,
+    refreshInterval: Duration | undefined = undefined,
+  ): GkeClusterLocator {
     return GkeClusterLocator.fromConfigWithClient(
       config,
-      new container.v1.ClusterManagerClient(),
+      new container.v1.ClusterManagerClient({
+        libName: `backstage/kubernetes-backend.GkeClusterLocator`,
+        libVersion: packageinfo.version,
+      }),
+      logger,
+      refreshInterval,
     );
   }
 
-  async getClusters(): Promise<GKEClusterDetails[]> {
-    const { projectId, region, skipTLSVerify } = this.options;
+  async getClusters(): Promise<ClusterDetails[]> {
+    if (!this.hasClusterDetails) {
+      // refresh at least once when first called, when retries are disabled and in tests
+      await this.refreshClusters();
+    }
+    return this.clusterDetails ?? [];
+  }
+
+  private getClusterUrl(
+    cluster: container.protos.google.container.v1.ICluster,
+  ): string {
+    if (this.options.endpointType === 'dns') {
+      const dnsEndpoint =
+        cluster.controlPlaneEndpointsConfig?.dnsEndpointConfig?.endpoint;
+      if (dnsEndpoint) {
+        return `https://${dnsEndpoint}`;
+      }
+      this.logger.info(
+        `Cluster '${
+          cluster.name ?? 'unknown'
+        }' has endpointType 'dns' configured but no DNS endpoint available, falling back to public IP`,
+      );
+    }
+    return `https://${cluster.endpoint ?? ''}`;
+  }
+
+  // TODO pass caData into the object
+  async refreshClusters(): Promise<void> {
+    const {
+      projectId,
+      region,
+      authProvider,
+      skipTLSVerify,
+      skipMetricsLookup,
+      exposeDashboard,
+      matchingResourceLabels,
+    } = this.options;
     const request = {
       parent: `projects/${projectId}/locations/${region}`,
     };
 
     try {
       const [response] = await this.client.listClusters(request);
-      return (response.clusters ?? []).map(r => ({
-        // TODO filter out clusters which don't have name or endpoint
-        name: r.name ?? 'unknown',
-        url: `https://${r.endpoint ?? ''}`,
-        authProvider: 'google',
-        skipTLSVerify,
-      }));
+      this.clusterDetails = (response.clusters ?? [])
+        .filter(r => {
+          return matchingResourceLabels?.every(mrl => {
+            if (!r.resourceLabels) {
+              return false;
+            }
+            return r.resourceLabels[mrl.key] === mrl.value;
+          });
+        })
+        .map(r => ({
+          // TODO filter out clusters which don't have name or endpoint
+          name: r.name ?? 'unknown',
+          url: this.getClusterUrl(r),
+          authMetadata: { [ANNOTATION_KUBERNETES_AUTH_PROVIDER]: authProvider },
+          skipTLSVerify,
+          skipMetricsLookup,
+          ...(exposeDashboard
+            ? {
+                dashboardApp: 'gke',
+                dashboardParameters: {
+                  projectId,
+                  region,
+                  clusterName: r.name,
+                },
+              }
+            : {}),
+        }));
+      this.hasClusterDetails = true;
     } catch (e) {
-      throw new Error(
-        `There was an error retrieving clusters from GKE for projectId=${projectId} region=${region} : [${e.message}]`,
+      throw new ForwardedError(
+        `There was an error retrieving clusters from GKE for projectId=${projectId} region=${region}`,
+        e,
       );
     }
   }
+}
+
+function isValidEndpointType(
+  value: string,
+): value is (typeof VALID_ENDPOINT_TYPES)[number] {
+  return VALID_ENDPOINT_TYPES.includes(
+    value as (typeof VALID_ENDPOINT_TYPES)[number],
+  );
+}
+
+function parseEndpointType(value: string | undefined): 'public' | 'dns' {
+  if (value === undefined) {
+    return 'public';
+  }
+  if (isValidEndpointType(value)) {
+    return value;
+  }
+  throw new Error(
+    `Invalid endpointType '${value}', must be one of: ${VALID_ENDPOINT_TYPES.join(
+      ', ',
+    )}`,
+  );
 }

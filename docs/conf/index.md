@@ -16,10 +16,32 @@ allowing for customization.
 ## Supplying Configuration
 
 Configuration is stored in YAML files where the defaults are `app-config.yaml`
-and `app-config.local.yaml` for local overrides. Other sets of files can by
-loaded by passing `--config <path>` flags. The configuration files themselves
-contain plain YAML, but with support for loading in data and secrets from
-various sources using for example `$env` and `$file` keys.
+and `app-config.local.yaml` for local overrides. Additionally, it is possible
+to define environment-based configuration files with the `BACKSTAGE_ENV`
+environment variable.
+
+`BACKSTAGE_ENV` accepts either a single value or comma-separated values for
+stacking multiple environments. For example,
+`BACKSTAGE_ENV=e2e-test,production` loads:
+
+1. `app-config.yaml`
+2. `app-config.e2e-test.yaml`
+3. `app-config.production.yaml`
+4. `app-config.local.yaml`
+5. `app-config.e2e-test.local.yaml`
+6. `app-config.production.local.yaml`
+
+All non-local environment files are loaded before any local files, so local
+overrides always take priority. Within each group, environments are ordered
+left-to-right as specified. The base `app-config.yaml` is required by default, while the other files are optional and only loaded if they exist.
+
+Other sets of files can by loaded by passing `--config <path>` flags.
+Read more about the configuration loading order in the
+[Configuration Files](./writing.md#configuration-files) section.
+
+The configuration files themselves contain plain YAML, but with support for
+loading in data and secrets from various sources using for example
+`$env` and `$file` keys.
 
 It is also possible to supply configuration through environment variables, for
 example `APP_CONFIG_app_baseUrl=https://staging.example.com`. However these
@@ -61,7 +83,7 @@ More details are provided in dedicated sections of the documentation.
 
 - [Reading Configuration](./reading.md): How to read configuration in your
   plugin.
-- [Writing Configuration](./writing.md): How to provide configuration for your
+- [Writing Configuration](./writing.md): How to write configuration for your
   Backstage deployment.
 - [Defining Configuration](./defining.md): How to define a configuration schema
   for users of your plugin or package.

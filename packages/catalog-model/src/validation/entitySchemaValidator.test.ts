@@ -27,9 +27,10 @@ describe('entitySchemaValidator', () => {
       metadata: {
         uid: 'e01199ab-08cc-44c2-8e19-5c29ded82521',
         etag: 'lsndfkjsndfkjnsdfkjnsd==',
-        generation: 13,
         name: 'test',
         namespace: 'ns',
+        title: 'My Component, Yay',
+        description: 'Yeah this is probably the best component so far',
         labels: {
           'backstage.io/custom': 'ValueStuff',
         },
@@ -51,7 +52,11 @@ describe('entitySchemaValidator', () => {
         owner: 'me',
       },
       relations: [
-        { type: 't', target: { kind: 'k', namespace: 'ns', name: 'n' } },
+        {
+          type: 't',
+          targetRef: 'someTargetRef',
+          target: { kind: 'k', namespace: 'ns', name: 'n' },
+        },
       ],
       status: {
         items: [
@@ -152,26 +157,6 @@ describe('entitySchemaValidator', () => {
     expect(() => validator(entity)).toThrow(/etag/);
   });
 
-  it('accepts missing generation', () => {
-    delete entity.metadata.generation;
-    expect(() => validator(entity)).not.toThrow();
-  });
-
-  it('rejects bad generation type', () => {
-    entity.metadata.generation = 'a';
-    expect(() => validator(entity)).toThrow(/generation/);
-  });
-
-  it('rejects zero generation', () => {
-    entity.metadata.generation = 0;
-    expect(() => validator(entity)).toThrow(/generation/);
-  });
-
-  it('rejects non-integer generation', () => {
-    entity.metadata.generation = 1.5;
-    expect(() => validator(entity)).toThrow(/generation/);
-  });
-
   it('rejects missing name', () => {
     delete entity.metadata.name;
     expect(() => validator(entity)).toThrow(/name/);
@@ -190,6 +175,21 @@ describe('entitySchemaValidator', () => {
   it('rejects bad namespace type', () => {
     entity.metadata.namespace = 7;
     expect(() => validator(entity)).toThrow(/namespace/);
+  });
+
+  it('accepts missing title', () => {
+    delete entity.metadata.title;
+    expect(() => validator(entity)).not.toThrow();
+  });
+
+  it('rejects bad title type', () => {
+    entity.metadata.title = 7;
+    expect(() => validator(entity)).toThrow(/title/);
+  });
+
+  it('rejects empty title', () => {
+    entity.metadata.title = '';
+    expect(() => validator(entity)).toThrow(/title/);
   });
 
   it('accepts missing description', () => {
@@ -365,8 +365,8 @@ describe('entitySchemaValidator', () => {
     expect(() => validator(entity)).toThrow(/relations/);
   });
 
-  it('rejects missing relations.target', () => {
-    delete entity.relations[0].target;
+  it('does reject missing relations.targetRef', () => {
+    delete entity.relations[0].targetRef;
     expect(() => validator(entity)).toThrow(/relations/);
   });
 

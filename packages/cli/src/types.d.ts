@@ -19,13 +19,16 @@ declare namespace NodeJS {
     readonly NODE_ENV: 'development' | 'production' | 'test';
   }
 }
-
+declare module 'fs' {
+  export interface StatSyncFn {}
+}
 declare module 'rollup-plugin-image-files' {
   export default function image(options?: any): any;
 }
 
-declare module '@svgr/rollup' {
-  export default function svgr(options?: any): any;
+declare module 'rollup/parseAst' {
+  export function parseAst(code: string): any;
+  export function parseAstAsync(code: string): any;
 }
 
 declare module '@rollup/plugin-yaml';
@@ -55,8 +58,6 @@ declare module 'react-dev-utils/ModuleScopePlugin' {
 }
 
 declare module 'react-dev-utils/FileSizeReporter' {
-  import webpack = require('webpack');
-
   export interface OpaqueFileSizes {
     root: string;
     sizes: Record<string, number>;
@@ -78,7 +79,7 @@ declare module 'react-dev-utils/FileSizeReporter' {
    * the main bundle or a chunk exceeds the specified size (in bytes).
    */
   export function printFileSizesAfterBuild(
-    webpackStats: webpack.Stats,
+    stats: import('@rspack/core').Stats,
     previousFileSizes: OpaqueFileSizes,
     buildFolder: string,
     maxBundleGzipSize?: number,
@@ -255,4 +256,12 @@ declare module 'webpack-node-externals' {
       includeAbsolutePaths?: boolean;
     }
   }
+}
+
+declare module '@esbuild-kit/cjs-loader' {}
+
+declare module 'postcss-import' {
+  import { Plugin } from 'postcss';
+
+  export default function postcssImport(): Plugin;
 }

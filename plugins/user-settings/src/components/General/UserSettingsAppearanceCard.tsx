@@ -13,17 +13,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React from 'react';
-import { List } from '@material-ui/core';
-import { InfoCard } from '@backstage/core-components';
+
+import { InfoCard, useSidebarPinState } from '@backstage/core-components';
+import List from '@material-ui/core/List';
 import { UserSettingsPinToggle } from './UserSettingsPinToggle';
 import { UserSettingsThemeToggle } from './UserSettingsThemeToggle';
+import { UserSettingsLanguageToggle } from './UserSettingsLanguageToggle';
+import { useTranslationRef } from '@backstage/frontend-plugin-api';
+import { userSettingsTranslationRef } from '../../translation';
 
-export const UserSettingsAppearanceCard = () => (
-  <InfoCard title="Appearance">
-    <List dense>
-      <UserSettingsThemeToggle />
-      <UserSettingsPinToggle />
-    </List>
-  </InfoCard>
-);
+/** @public */
+export const UserSettingsAppearanceCard = () => {
+  const { isMobile } = useSidebarPinState();
+  const { t } = useTranslationRef(userSettingsTranslationRef);
+
+  return (
+    <InfoCard title={t('appearanceCard.title')} variant="gridItem">
+      <List dense>
+        <UserSettingsThemeToggle />
+        <UserSettingsLanguageToggle />
+        {!isMobile && <UserSettingsPinToggle />}
+      </List>
+    </InfoCard>
+  );
+};

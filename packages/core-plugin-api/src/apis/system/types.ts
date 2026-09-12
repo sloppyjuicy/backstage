@@ -14,37 +14,11 @@
  * limitations under the License.
  */
 
-export type ApiRef<T> = {
-  id: string;
-  T: T;
-};
-
-export type AnyApiRef = ApiRef<unknown>;
-
-export type ApiRefType<T> = T extends ApiRef<infer U> ? U : never;
-
-export type TypesToApiRefs<T> = { [key in keyof T]: ApiRef<T[key]> };
-
-export type ApiRefsToTypes<T extends { [key in string]: ApiRef<unknown> }> = {
-  [key in keyof T]: ApiRefType<T[key]>;
-};
-
-export type ApiHolder = {
-  get<T>(api: ApiRef<T>): T | undefined;
-};
-
-export type ApiFactory<
-  Api,
-  Impl extends Api,
-  Deps extends { [name in string]: unknown },
-> = {
-  api: ApiRef<Api>;
-  deps: TypesToApiRefs<Deps>;
-  factory(deps: Deps): Impl;
-};
-
-export type AnyApiFactory = ApiFactory<
-  unknown,
-  unknown,
-  { [key in string]: unknown }
->;
+export type {
+  ApiRef,
+  AnyApiRef,
+  TypesToApiRefs,
+  ApiHolder,
+  ApiFactory,
+  AnyApiFactory,
+} from '@backstage/frontend-plugin-api';

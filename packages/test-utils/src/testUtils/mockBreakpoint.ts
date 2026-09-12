@@ -15,22 +15,23 @@
  */
 
 /**
- *  This is a mocking method suggested in the Jest Doc's, as it is not implemented in JSDOM yet.
- *  It can be used to mock values when the MUI `useMediaQuery` hook if it is used in a tested component.
+ *  This is a mocking method suggested in the Jest docs, as it is not implemented in JSDOM yet.
+ *  It can be used to mock values for the Material UI `useMediaQuery` hook if it is used in a tested component.
  *
  *  For issues checkout the documentation:
  *  https://jestjs.io/docs/manual-mocks#mocking-methods-which-are-not-implemented-in-jsdom
  *
- *  If there are any updates from MUI React on testing `useMediaQuery` this mock should be replaced
- *  https://material-ui.com/components/use-media-query/#testing
+ *  If there are any updates from Material UI React on testing `useMediaQuery` this mock should be replaced
+ *  https://mui.com/material-ui/react-use-media-query/#testing
  *
- * @param matchMediaOptions
+ * @public
+ * @deprecated Import from `@backstage/core-components/testUtils` instead.
  */
-export default function mockBreakpoint({ matches = false }) {
+export default function mockBreakpoint(options: { matches: boolean }) {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: jest.fn().mockImplementation(query => ({
-      matches: matches,
+      matches: options.matches ?? false,
       media: query,
       onchange: null,
       addListener: jest.fn(), // deprecated

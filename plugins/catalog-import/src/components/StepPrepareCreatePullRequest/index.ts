@@ -15,7 +15,18 @@
  */
 
 export { AutocompleteTextField } from './AutocompleteTextField';
+export type {
+  AutocompleteTextFieldOption,
+  AutocompleteTextFieldProps,
+} from './AutocompleteTextField';
 export { PreparePullRequestForm } from './PreparePullRequestForm';
+export type { PreparePullRequestFormProps } from './PreparePullRequestForm';
 export { PreviewCatalogInfoComponent } from './PreviewCatalogInfoComponent';
+export type { PreviewCatalogInfoComponentProps } from './PreviewCatalogInfoComponent';
 export { PreviewPullRequestComponent } from './PreviewPullRequestComponent';
+export type { PreviewPullRequestComponentProps } from './PreviewPullRequestComponent';
 export { StepPrepareCreatePullRequest } from './StepPrepareCreatePullRequest';
+export type {
+  StepPrepareCreatePullRequestProps,
+  UnpackNestedValue,
+} from './StepPrepareCreatePullRequest';

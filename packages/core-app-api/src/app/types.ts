@@ -14,64 +14,65 @@
  * limitations under the License.
  */
 
-import { ComponentType } from 'react';
+import { ComponentType, PropsWithChildren } from 'react';
 import {
   AnyApiFactory,
   AppTheme,
-  ProfileInfo,
-  IconComponent,
   BackstagePlugin,
+  ExternalRouteRef,
+  FeatureFlag,
+  IconComponent,
+  IdentityApi,
   RouteRef,
   SubRouteRef,
-  ExternalRouteRef,
-  PluginOutput,
 } from '@backstage/core-plugin-api';
 import { AppConfig } from '@backstage/config';
-import { AppIcons } from './icons';
 
-export type BootErrorPageProps = {
+/**
+ * Props for the `BootErrorPage` component of {@link AppComponents}.
+ *
+ * @public
+ */
+export type BootErrorPageProps = PropsWithChildren<{
   step: 'load-config' | 'load-chunk';
   error: Error;
-};
+}>;
 
-export type SignInResult = {
+/**
+ * Props for the `SignInPage` component of {@link AppComponents}.
+ *
+ * @public
+ */
+export type SignInPageProps = PropsWithChildren<{
   /**
-   * User ID that will be returned by the IdentityApi
+   * Set the IdentityApi on successful sign-in. This should only be called once.
    */
-  userId: string;
+  onSignInSuccess(identityApi: IdentityApi): void;
+}>;
 
-  profile: ProfileInfo;
-
-  /**
-   * Function used to retrieve an ID token for the signed in user.
-   */
-  getIdToken?: () => Promise<string>;
-
-  /**
-   * Sign out handler that will be called if the user requests to sign out.
-   */
-  signOut?: () => Promise<void>;
-};
-
-export type SignInPageProps = {
-  /**
-   * Set the sign-in result for the app. This should only be called once.
-   */
-  onResult(result: SignInResult): void;
-};
-
-export type ErrorBoundaryFallbackProps = {
+/**
+ * Props for the fallback error boundary.
+ *
+ * @public
+ */
+export type ErrorBoundaryFallbackProps = PropsWithChildren<{
   plugin?: BackstagePlugin;
   error: Error;
   resetError: () => void;
-};
+}>;
 
+/**
+ * A set of replaceable core components that are part of every Backstage app.
+ *
+ * @public
+ */
 export type AppComponents = {
-  NotFoundErrorPage: ComponentType<{}>;
+  NotFoundErrorPage: ComponentType<PropsWithChildren<{}>>;
   BootErrorPage: ComponentType<BootErrorPageProps>;
-  Progress: ComponentType<{}>;
-  Router: ComponentType<{}>;
+  Progress: ComponentType<PropsWithChildren<{}>>;
+  Router: ComponentType<PropsWithChildren<{ basename?: string }>>;
   ErrorBoundaryFallback: ComponentType<ErrorBoundaryFallbackProps>;
+  ThemeProvider?: ComponentType<PropsWithChildren<{}>>;
 
   /**
    * An optional sign-in page that will be rendered instead of the AppRouter at startup.
@@ -86,15 +87,52 @@ export type AppComponents = {
 };
 
 /**
+ * A set of well-known icons that should be available within an app.
+ *
+ * @public
+ */
+export type AppIcons = {
+  'kind:api': IconComponent;
+  'kind:component': IconComponent;
+  'kind:domain': IconComponent;
+  'kind:group': IconComponent;
+  'kind:location': IconComponent;
+  'kind:system': IconComponent;
+  'kind:user': IconComponent;
+  'kind:resource': IconComponent;
+  'kind:template': IconComponent;
+  brokenImage: IconComponent;
+  catalog: IconComponent;
+  chat: IconComponent;
+  dashboard: IconComponent;
+  docs: IconComponent;
+  email: IconComponent;
+  github: IconComponent;
+  group: IconComponent;
+  help: IconComponent;
+  scaffolder: IconComponent;
+  search: IconComponent;
+  techdocs: IconComponent;
+  user: IconComponent;
+  warning: IconComponent;
+  star: IconComponent;
+  unstarred: IconComponent;
+};
+
+/**
  * A function that loads in the App config that will be accessible via the ConfigApi.
  *
  * If multiple config objects are returned in the array, values in the earlier configs
  * will override later ones.
+ *
+ * @public
  */
 export type AppConfigLoader = () => Promise<AppConfig[]>;
 
 /**
  * Extracts a union of the keys in a map whose value extends the given type
+ *
+ * @ignore
  */
 type KeysWithType<Obj extends { [key in string]: any }, Type> = {
   [key in keyof Obj]: Obj[key] extends Type ? key : never;
@@ -102,6 +140,8 @@ type KeysWithType<Obj extends { [key in string]: any }, Type> = {
 
 /**
  * Takes a map Map required values and makes all keys matching Keys optional
+ *
+ * @ignore
  */
 type PartialKeys<
   Map extends { [name in string]: any },
@@ -110,6 +150,8 @@ type PartialKeys<
 
 /**
  * Creates a map of target routes with matching parameters based on a map of external routes.
+ *
+ * @ignore
  */
 type TargetRouteMap<
   ExternalRoutes extends { [name: string]: ExternalRouteRef },
@@ -118,10 +160,16 @@ type TargetRouteMap<
     infer Params,
     any
   >
-    ? RouteRef<Params> | SubRouteRef<Params>
+    ? RouteRef<Params> | SubRouteRef<Params> | false
     : never;
 };
 
+/**
+ * A function that can bind from external routes of a given plugin, to concrete
+ * routes of other plugins. See {@link createSpecializedApp}.
+ *
+ * @public
+ */
 export type AppRouteBinder = <
   ExternalRoutes extends { [name: string]: ExternalRouteRef },
 >(
@@ -132,42 +180,52 @@ export type AppRouteBinder = <
   >,
 ) => void;
 
-// Output from newer or older plugin API versions that might not be supported by
-// this version of the app API, but we don't want to break at the type checking level.
-// We only use this more permissive type for the `createApp` options, as we otherwise
-// want to stick to using the type for the outputs that we know about in this version
-// of the app api.
-type UnknownPluginOutput = {
-  type: string;
-};
-export type BackstagePluginWithAnyOutput = Omit<
-  BackstagePlugin<any, any>,
-  'output'
-> & {
-  output(): (PluginOutput | UnknownPluginOutput)[];
-};
-
+/**
+ * The options accepted by {@link createSpecializedApp}.
+ *
+ * @public
+ */
 export type AppOptions = {
   /**
    * A collection of ApiFactories to register in the application to either
-   * add add new ones, or override factories provided by default or by plugins.
+   * add new ones, or override factories provided by default or by plugins.
    */
   apis?: Iterable<AnyApiFactory>;
 
   /**
+   * A collection of ApiFactories to register in the application as default APIs.
+   * These APIs cannot be overridden by plugin factories, but can be overridden
+   * by plugin APIs provided through the
+   * A collection of ApiFactories to register in the application to either
+   * add new ones, or override factories provided by default or by plugins.
+   */
+  defaultApis?: Iterable<AnyApiFactory>;
+
+  /**
    * Supply icons to override the default ones.
    */
-  icons?: Partial<AppIcons> & { [key in string]: IconComponent };
+  icons: AppIcons & { [key in string]: IconComponent };
 
   /**
    * A list of all plugins to include in the app.
    */
-  plugins?: BackstagePluginWithAnyOutput[];
+  plugins?: Array<
+    BackstagePlugin & {
+      output?(): Array<
+        { type: 'feature-flag'; name: string } | { type: string }
+      >; // support for old plugins
+    }
+  >;
+
+  /**
+   * Application level feature flags.
+   */
+  featureFlags?: (FeatureFlag & Omit<FeatureFlag, 'pluginId'>)[];
 
   /**
    * Supply components to the app to override the default ones.
    */
-  components?: Partial<AppComponents>;
+  components: AppComponents;
 
   /**
    * Themes provided as a part of the app. By default two themes are included, one
@@ -180,18 +238,18 @@ export type AppOptions = {
    *   id: 'light',
    *   title: 'Light Theme',
    *   variant: 'light',
-   *   theme: lightTheme,
    *   icon: <LightIcon />,
+   *   Provider: ({ children }) => <UnifiedThemeProvider theme={themes.light} />,
    * }, {
    *   id: 'dark',
    *   title: 'Dark Theme',
    *   variant: 'dark',
-   *   theme: darkTheme,
    *   icon: <DarkIcon />,
+   *   Provider: ({ children }) => <UnifiedThemeProvider theme={themes.dark} />,
    * }]
    * ```
    */
-  themes?: AppTheme[];
+  themes: (Partial<AppTheme> & Omit<AppTheme, 'theme'>)[];
 
   /**
    * A function that loads in App configuration that will be accessible via
@@ -223,42 +281,102 @@ export type AppOptions = {
    * ```
    */
   bindRoutes?(context: { bind: AppRouteBinder }): void;
+
+  __experimentalTranslations?: {
+    defaultLanguage?: string;
+    availableLanguages?: string[];
+    resources?: Array<
+      // Separate declaration for now to avoid dependency on core-plugin-api/alpha and TS 5.0
+      | { $$type: '@backstage/TranslationResource'; id: string }
+      | {
+          $$type: '@backstage/TranslationMessages';
+          id: string;
+          full: boolean;
+          messages: Record<string, string>;
+        }
+    >;
+  };
 };
 
+/**
+ * The public API of the output of {@link createSpecializedApp}.
+ *
+ * @public
+ */
 export type BackstageApp = {
   /**
    * Returns all plugins registered for the app.
    */
-  getPlugins(): BackstagePlugin<any, any>[];
+  getPlugins(): BackstagePlugin[];
 
   /**
    * Get a common or custom icon for this app.
    */
   getSystemIcon(key: string): IconComponent | undefined;
+
+  /**
+   * Creates the root component that renders the entire app.
+   *
+   * @remarks
+   *
+   * This method must only be called once, and you have to provide it the entire
+   * app element tree. The element tree will be analyzed to discover plugins,
+   * routes, and other app features. The returned component will render all
+   * of the app elements wrapped within the app context provider.
+   *
+   * @example
+   * ```tsx
+   * export default app.createRoot(
+   *   <>
+   *     <AlertDisplay />
+   *     <OAuthRequestDialog />
+   *     <AppRouter>
+   *       <Root>{routes}</Root>
+   *     </AppRouter>
+   *   </>,
+   * );
+   * ```
+   */
+  createRoot(element: JSX.Element): ComponentType<PropsWithChildren<{}>>;
 
   /**
    * Provider component that should wrap the Router created with getRouter()
    * and any other components that need to be within the app context.
+   *
+   * @deprecated Use {@link BackstageApp.createRoot} instead.
    */
-  getProvider(): ComponentType<{}>;
+  getProvider(): ComponentType<PropsWithChildren<{}>>;
 
   /**
    * Router component that should wrap the App Routes create with getRoutes()
    * and any other components that should only be available while signed in.
+   *
+   * @deprecated Import and use the {@link AppRouter} component from `@backstage/core-app-api` instead
    */
-  getRouter(): ComponentType<{}>;
+  getRouter(): ComponentType<PropsWithChildren<{}>>;
 };
 
+/**
+ * The central context providing runtime app specific state that plugin views
+ * want to consume.
+ *
+ * @public
+ */
 export type AppContext = {
   /**
    * Get a list of all plugins that are installed in the app.
    */
-  getPlugins(): BackstagePlugin<any, any>[];
+  getPlugins(): BackstagePlugin[];
 
   /**
    * Get a common or custom icon for this app.
    */
   getSystemIcon(key: string): IconComponent | undefined;
+
+  /**
+   * Get a list of common and custom icons for this app.
+   */
+  getSystemIcons(): Record<string, IconComponent>;
 
   /**
    * Get the components registered for various purposes in the app.

@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { Gauge } from './Gauge';
 
 const containerStyle = { width: 300 };
@@ -22,6 +21,7 @@ const containerStyle = { width: 300 };
 export default {
   title: 'Data Display/Gauge',
   component: Gauge,
+  tags: ['!manifest'],
 };
 
 export const Default = () => (
@@ -51,5 +51,11 @@ export const InverseLowProgress = () => (
 export const AbsoluteProgress = () => (
   <div style={containerStyle}>
     <Gauge value={89.2} fractional={false} unit="m/s" />
+  </div>
+);
+
+export const StaticColor = () => (
+  <div style={containerStyle}>
+    <Gauge getColor={() => '#f0f'} value={0.5} />
   </div>
 );

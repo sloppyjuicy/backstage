@@ -13,16 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Grid, Typography } from '@material-ui/core';
-import React, { PropsWithChildren } from 'react';
-import { MemoryRouter } from 'react-router';
-import { InfoCard } from './InfoCard';
 
-const linkInfo = { title: 'Go to XYZ Location', link: '#' };
+import Grid from '@material-ui/core/Grid';
+import Typography from '@material-ui/core/Typography';
+import { PropsWithChildren } from 'react';
+import { MemoryRouter } from 'react-router-dom';
+import { InfoCard, Props } from './InfoCard';
 
 export default {
   title: 'Layout/Information Card',
   component: InfoCard,
+  tags: ['!manifest'],
 };
 
 const text = (
@@ -36,6 +37,11 @@ const text = (
   </Typography>
 );
 
+const defaultProps = {
+  title: 'Information Card',
+  subheader: 'Subheader',
+};
+
 const Wrapper = ({ children }: PropsWithChildren<{}>) => (
   <MemoryRouter>
     <Grid container spacing={4}>
@@ -46,24 +52,21 @@ const Wrapper = ({ children }: PropsWithChildren<{}>) => (
   </MemoryRouter>
 );
 
-export const Default = () => (
+export const Default = (args: Props) => (
   <Wrapper>
-    <InfoCard title="Information Card">{text}</InfoCard>
+    <InfoCard {...args}>{text}</InfoCard>
   </Wrapper>
 );
 
-export const Subhead = () => (
+Default.args = defaultProps;
+
+export const LinkInFooter = (args: Props) => (
   <Wrapper>
-    <InfoCard title="Information Card" subheader="Subheader">
-      {text}
-    </InfoCard>
+    <InfoCard {...args}>{text}</InfoCard>
   </Wrapper>
 );
 
-export const LinkInFooter = () => (
-  <Wrapper>
-    <InfoCard title="Information Card" deepLink={linkInfo}>
-      {text}
-    </InfoCard>
-  </Wrapper>
-);
+LinkInFooter.args = {
+  ...defaultProps,
+  deepLink: { title: 'Go to XYZ Location', link: '#' },
+};

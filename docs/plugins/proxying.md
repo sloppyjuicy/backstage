@@ -4,6 +4,14 @@ title: Proxying
 description: Documentation on Proxying
 ---
 
+:::caution[Legacy Documentation]
+
+This section is part of the legacy plugins documentation. The proxy configuration and usage described here applies to both the old and new backend systems. For creating backend plugins and modules, see [Building Backend Plugins and Modules](../backend-system/building-plugins-and-modules/01-index.md).
+
+:::
+
+This page describes how to configure and use the built-in HTTP proxy functionality in your Backstage backend.
+
 ## Overview
 
 The Backstage backend comes packaged with a basic HTTP proxy, that can aid in
@@ -15,15 +23,20 @@ can be the best choice for communicating with an API.
 
 The plugin is already added to a default Backstage project.
 
+### New Backend
+
+To add it to a project, add the following line in `packages/backend/src/index.ts`:
+
+```ts
+backend.add(import('@backstage/plugin-proxy-backend'));
+```
+
+### Old Backend
+
 In `packages/backend/src/index.ts`:
 
 ```ts
-const proxyEnv = useHotMemoize(module, () => createEnv('proxy'));
-
-const service = createServiceBuilder(module)
-  .loadConfig(configReader)
-  /** ... other routers ... */
-  .addRouter('/proxy', await proxy(proxyEnv));
+backend.add(import('@backstage/plugin-proxy-backend'));
 ```
 
 ## Configuration
@@ -36,13 +49,16 @@ Example:
 ```yaml
 # in app-config.yaml
 proxy:
-  simple-example: http://simple.example.com:8080
-  '/larger-example/v1':
-    target: http://larger.example.com:8080/svc.v1
-    headers:
-      Authorization: ${EXAMPLE_AUTH_HEADER}
-      # ...or interpolating a value into part of a string,
-      # Authorization: Bearer ${EXAMPLE_AUTH_TOKEN}
+  reviveConsumedRequestBodies: true
+  endpoints:
+    /simple-example: http://simple.example.com:8080
+    '/larger-example/v1':
+      target: http://larger.example.com:8080/svc.v1
+      credentials: require
+      headers:
+        Authorization: ${EXAMPLE_AUTH_HEADER}
+        # ...or interpolating a value into part of a string,
+        # Authorization: Bearer ${EXAMPLE_AUTH_TOKEN}
 ```
 
 Each key under the proxy configuration entry is a route to match, below the
@@ -55,6 +71,23 @@ backend requests to `/api/proxy/simple-example/...` and
 The value inside each route is either a simple URL string, or an object on the
 format accepted by
 [http-proxy-middleware](https://www.npmjs.com/package/http-proxy-middleware).
+Additionally, it has an optional `credentials` key which can have the following
+values:
+
+- `require`: Callers must provide Backstage user or service credentials with
+  each request. The credentials are not forwarded to the proxy target. This is
+  the default.
+- `forward`: Callers must provide Backstage user or service credentials with
+  each request, and those credentials are forwarded to the proxy target.
+- `dangerously-allow-unauthenticated`: No Backstage credentials are required to
+  access this proxy target. The target can still apply its own credentials
+  checks, but the proxy will not help block non-Backstage-blessed callers. If
+  you also add `allowedHeaders: ['Authorization']` to an endpoint configuration,
+  then the Backstage token (if provided) WILL be forwarded.
+
+Note that if you have `backend.auth.dangerouslyDisableDefaultAuthPolicy` set to
+`true`, the `credentials` value does not apply; the proxy will behave as if all
+endpoints were set to `dangerously-allow-unauthenticated`.
 
 If the value is a string, it is assumed to correspond to:
 
@@ -63,6 +96,7 @@ target: <the string>
 changeOrigin: true
 pathRewrite:
   '^<url prefix><the string>/': '/'
+credentials: require
 ```
 
 When the target is an object, it is given verbatim to `http-proxy-middleware`
@@ -75,6 +109,7 @@ except with the following caveats for convenience:
   `'^/api/proxy/larger-example/v1/': '/'` is added. That means that a request to
   `/api/proxy/larger-example/v1/some/path` will be translated to a request to
   `http://larger.example.com:8080/svc.v1/some/path`.
+- If `credentials` is not specified, it is set to `require`.
 
 There are also additional settings:
 
@@ -84,13 +119,85 @@ There are also additional settings:
   from the target.
 
 By default, the proxy will only forward safe HTTP request headers to the target.
-Those are based on the headers that are considered safe for CORS and includes
+These are based on the headers that are considered safe for CORS and include
 headers like `content-type` or `last-modified`, as well as all headers that are
-set by the proxy. If the proxy should forward other headers like
+set by the proxy. If the proxy should forward other headers, like
 `authorization`, this must be enabled by the `allowedHeaders` config, for
 example `allowedHeaders: ['Authorization']`. This should help to not
 accidentally forward confidential headers (`cookie`, `X-Auth-Request-User`) to
-third-parties.
+third parties.
 
 The same logic applies to headers that are sent from the target back to the
 frontend.
+
+### Passing POST-request body
+
+To fix the issue with missing request body passed by proxy to the target, set `proxy.reviveConsumedRequestBodies: true`, so the `fixRequestBody` handler of [http-proxy-middleware](https://github.com/chimurai/http-proxy-middleware?tab=readme-ov-file#intercept-and-manipulate-requests) will be used.
+
+In that case, mind setting the `Content-Type` header to either `application/json` or `application/x-www-form-urlencoded`.
+
+### Proxy Endpoints Extension Point
+
+The proxy plugin additionally supports a `proxyEndpointsExtensionPoint` which a
+proxy plugin module can utilize in order to programmatically register
+additional endpoints, whose payloads are specified exactly as in app-config
+(described above). Note that endpoints configured in app-config will always
+override those registered in this manner.
+
+To scaffold a module package, run `yarn new`, select `backend-module`, and
+fill out the prompts with `proxy` as the plugin ID. This will create
+`plugins/proxy-backend-module-<moduleId>` with `src/module.ts` and
+`src/index.ts` files. The scaffolded package only depends on
+`@backstage/backend-plugin-api`, so add the `@backstage/plugin-proxy-node`
+package that provides the extension point:
+
+```bash
+yarn --cwd plugins/proxy-backend-module-demo-additional-endpoints add @backstage/plugin-proxy-node
+```
+
+Then replace the generated `src/module.ts` with the example below:
+
+```ts title="plugins/proxy-backend-module-demo-additional-endpoints/src/module.ts"
+import { createBackendModule } from '@backstage/backend-plugin-api';
+import { proxyEndpointsExtensionPoint } from '@backstage/plugin-proxy-node/alpha';
+
+export const proxyModuleDemoAdditionalEndpoints = createBackendModule({
+  pluginId: 'proxy',
+  moduleId: 'demo-additional-endpoints',
+  register(reg) {
+    reg.registerInit({
+      deps: {
+        proxyEndpoints: proxyEndpointsExtensionPoint,
+      },
+      async init({ proxyEndpoints }) {
+        // Replace with however your setup obtains the credential.
+        const largerExampleAuth = 'Bearer <token>';
+        proxyEndpoints.addProxyEndpoints({
+          '/simple-example': 'http://simple.example.com:8080',
+          '/larger-example/v1': {
+            target: 'http://larger.example.com:8080/svc.v1',
+            credentials: 'require',
+            headers: {
+              Authorization: largerExampleAuth,
+            },
+          },
+        });
+      },
+    });
+  },
+});
+```
+
+```ts title="plugins/proxy-backend-module-demo-additional-endpoints/src/index.ts"
+export { proxyModuleDemoAdditionalEndpoints as default } from './module';
+```
+
+Then install the module alongside the proxy plugin in your backend entry
+point (usually `packages/backend/src/index.ts`):
+
+```ts title="packages/backend/src/index.ts"
+backend.add(import('@backstage/plugin-proxy-backend'));
+backend.add(
+  import('@internal/plugin-proxy-backend-module-demo-additional-endpoints'),
+);
+```

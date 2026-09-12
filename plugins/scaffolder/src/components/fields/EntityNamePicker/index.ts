@@ -15,3 +15,4 @@
  */
 export { EntityNamePicker } from './EntityNamePicker';
 export { entityNamePickerValidation } from './validation';
+export { EntityNamePickerFieldSchema } from './schema';

@@ -1,9 +1,14 @@
 ---
 id: call-existing-api
 title: Call Existing API
-# prettier-ignore
 description: Describes the various options that Backstage frontend plugins have, in communicating with service APIs that already exist
 ---
+
+:::caution[Legacy Documentation]
+
+This section is part of the legacy plugins documentation. The frontend code examples on this page use the old frontend system APIs (`discoveryApiRef`, `fetchApiRef` from `@backstage/core-plugin-api`). The same APIs are available in the new frontend system via `@backstage/frontend-plugin-api`. The general guidance on when to use direct requests vs. the proxy vs. a backend plugin remains valid for both systems.
+
+:::
 
 This article describes the various options that Backstage frontend plugins have,
 in communicating with service APIs that already exist. Each section below
@@ -20,11 +25,20 @@ such as `axios`.
 
 Example:
 
-```ts
-// Inside your component
-fetch('https://api.frobsco.com/v1/list')
-  .then(response => response.json())
-  .then(payload => setFrobs(payload as Frob[]));
+```ts title="plugins/my-awesome-plugin/src/components/AwesomeUsersTable.tsx"
+import { useAsync, useMountEffect } from '@react-hookz/web';
+
+function AwesomeUsersTable() {
+  const [{ status, result, error }, { execute }] = useAsync(async () => {
+    const response = await fetch('https://api.frobsco.com/v1/list');
+    return response.json();
+  });
+
+  useMountEffect(execute);
+
+
+  ...
+}
 ```
 
 Internally at Spotify, this has not been a very common choice. Third party APIs
@@ -76,12 +90,28 @@ proxy:
   '/frobs': http://api.frobsco.com/v1
 ```
 
-```ts
-// Inside your component
-const backendUrl = config.getString('backend.baseUrl');
-fetch(`${backendUrl}/proxy/frobs/list`)
-  .then(response => response.json())
-  .then(payload => setFrobs(payload as Frob[]));
+```tsx title="plugins/frobs-aggregator/src/components/FrobsAggregator.tsx"
+import {
+  useApi,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
+import { useAsync, useMountEffect } from '@react-hookz/web';
+
+function FrobsAggregator() {
+  const fetchApi = useApi(fetchApiRef);
+  const discoveryApi = useApi(discoveryApiRef);
+
+  const [{ status, result, error }, { execute }] = useAsync(async () => {
+    const baseUrl = await discoveryApi.getBaseUrl('proxy');
+    const response = await fetchApi.fetch(`${baseUrl}/frobs`);
+    return response.json();
+  });
+
+  useMountEffect(execute);
+
+  // ...
+}
 ```
 
 The proxy is powered by the `http-proxy-middleware` package. See
@@ -112,34 +142,62 @@ system. The above mentioned proxy is actually one such plugin. If you were in
 need of a more involved integration than just direct access to the FrobsCo API,
 or if you needed to hold state, you may want to make such a plugin.
 
-Example:
+For example, assuming you have created a new backend plugin called
+`frobs-aggregator`, you can add a new route like this:
 
-```ts
-// Inside your component
-const backendUrl = config.getString('backend.baseUrl');
-fetch(`${backendUrl}/frobs-aggregator/summary`)
-  .then(response => response.json())
-  .then(payload => setSummary(payload as FrobSummary));
+```tsx title="plugins/frobs-aggregator-backend/src/router.ts"
+import Router from 'express-promise-router';
+
+export async function createRouter() {
+  const router = Router();
+  router.use(express.json());
+
+  /* highlight-add-start */
+  router.get('/summary', async (req, res) => {
+    const agg = await Promise.all([
+      fetch('https://api.frobsco.com/v1/list'),
+      fetch('http://flerps.partnercompany.com:8080/flerp-batch'),
+      database.currentThunk(),
+    ]).then(async ([frobs, flerps, thunk]) => {
+      return computeAggregate(await frobs.json(), await flerps.json(), thunk);
+    });
+    res.status(200).json(agg);
+  });
+  /* highlight-add-end */
+}
 ```
 
-```ts
-// Inside a new frobs-aggregator backend plugin
-router.use('/summary', async (req, res) => {
-  const agg = await Promise.all([
-    fetch('https://api.frobsco.com/v1/list'),
-    fetch('http://flerps.partnercompany.com:8080/flerp-batch'),
-    database.currentThunk(),
-  ]).then(async ([frobs, flerps, thunk]) => {
-    return computeAggregate(await frobs.json(), await flerps.json(), thunk);
+Then you can fetch the data from your frontend plugin like this:
+
+```tsx title="plugins/frobs-aggregator/src/components/FrobsAggregator.tsx"
+import {
+  useApi,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
+import { useAsync, useMountEffect } from '@react-hookz/web';
+
+function FrobsAggregator() {
+  const fetchApi = useApi(fetchApiRef);
+  const discoveryApi = useApi(discoveryApiRef);
+
+  const [{ status, result, error }, { execute }] = useAsync(async () => {
+    // highlight-next-line
+    const baseUrl = await discoveryApi.getBaseUrl('frobs-aggregator');
+    // highlight-next-line
+    const response = await fetchApi.fetch(`${baseUrl}/summary`);
+    return response.json();
   });
-  res.status(200).send(agg);
-});
+
+  useMountEffect(execute);
+
+  // ...
+}
 ```
 
 For a more detailed example, see
-[the lighthouse plugin](https://github.com/backstage/backstage/tree/master/plugins/lighthouse)
-that stores some state in a database and adds new capabilities to the underlying
-API.
+[the user-settings plugin backend](https://github.com/backstage/backstage/tree/master/plugins/user-settings-backend)
+that stores some state in a database and surfaces an API for the frontend plugin to use.
 
 Internally at Spotify, this has been a fairly popular choice for different
 reasons. Commonly, the backend has been used as a caching and data massaging
@@ -167,8 +225,3 @@ There is a balance to strike regarding when to make an entirely separate backend
 for a purpose, and when to make a Backstage backend plugin that adapts something
 that already exists. General advice is not easy to give, but contact us on
 Discord if you have any questions, and we may be able to offer guidance.
-
-## Extending the GraphQL Model
-
-The extensible GraphQL backend layer is not built yet. This section will be
-expanded when that happens. Stay tuned!

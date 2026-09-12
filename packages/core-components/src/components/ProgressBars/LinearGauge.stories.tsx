@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { LinearGauge } from './LinearGauge';
 
 const containerStyle = { width: 300 };
@@ -22,6 +21,7 @@ const containerStyle = { width: 300 };
 export default {
   title: 'Data Display/LinearGauge',
   component: LinearGauge,
+  tags: ['!manifest'],
 };
 
 export const Default = () => (
@@ -39,5 +39,11 @@ export const MediumProgress = () => (
 export const LowProgress = () => (
   <div style={containerStyle}>
     <LinearGauge value={0.2} />
+  </div>
+);
+
+export const StaticColor = () => (
+  <div style={containerStyle}>
+    <LinearGauge getColor={() => '#f0f'} value={0.5} />
   </div>
 );
